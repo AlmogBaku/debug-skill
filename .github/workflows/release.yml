@@ -3,7 +3,11 @@ name: Release
 on:
   push:
     branches:
-      - main
+      - master
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
 
 concurrency:
   group: release
