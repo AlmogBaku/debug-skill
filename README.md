@@ -4,7 +4,8 @@ A CLI debugger for AI agents. Debug Python, Go, Node.js, Rust, and C++ programs 
 
 ## Why
 
-AI coding agents can't use interactive debuggers — they need stateless CLI commands. `dap` bridges this gap with a background daemon that holds the debug session while the CLI sends ephemeral commands.
+AI coding agents can't use interactive debuggers — they need stateless CLI commands. `dap` bridges this gap with a
+background daemon that holds the debug session while the CLI sends ephemeral commands.
 
 ## Install
 
@@ -38,7 +39,8 @@ dap debug --attach container:5678 --backend debugpy --break handler.py:20
 dap debug app.py --break app.py:10 -- --config prod.yaml --verbose
 ```
 
-Every execution command (`debug`, `step`, `continue`) returns full context automatically — current location, source code, local variables, stack trace, and program output. No extra calls needed.
+Every execution command (`debug`, `step`, `continue`) returns full context automatically — current location, source
+code, local variables, stack trace, and program output. No extra calls needed.
 
 ## How It Works
 
@@ -46,19 +48,20 @@ Every execution command (`debug`, `step`, `continue`) returns full context autom
 dap <command> → Unix socket → Daemon → DAP protocol → debugpy/dlv/js-debug/lldb-dap → Your program
 ```
 
-The daemon starts automatically on `dap debug` and exits on `dap stop` (or after 10 min idle). It's invisible — you never manage it directly.
+The daemon starts automatically on `dap debug` and exits on `dap stop` (or after 10 min idle). It's invisible — you
+never manage it directly.
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `dap debug <script>` | Start debugging (local or `--attach host:port`) |
-| `dap stop` | End session |
-| `dap step [in\|out\|over]` | Step (default: over) |
-| `dap continue` | Resume execution |
-| `dap context [--frame N]` | Re-fetch current state |
-| `dap eval <expr> [--frame N]` | Evaluate expression |
-| `dap output` | Drain buffered stdout/stderr since last stop |
+| Command                       | Description                                     |
+|-------------------------------|-------------------------------------------------|
+| `dap debug <script>`          | Start debugging (local or `--attach host:port`) |
+| `dap stop`                    | End session                                     |
+| `dap step [in\|out\|over]`    | Step (default: over)                            |
+| `dap continue`                | Resume execution                                |
+| `dap context [--frame N]`     | Re-fetch current state                          |
+| `dap eval <expr> [--frame N]` | Evaluate expression                             |
+| `dap output`                  | Drain buffered stdout/stderr since last stop    |
 
 **Global flags:** `--json` (JSON output), `--session <name>` (named sessions), `--socket <path>` (custom socket)
 
@@ -76,12 +79,12 @@ Each session runs its own daemon process. Omit `--session` for the default sessi
 
 ## Supported Languages
 
-| Language | Backend | Status |
-|----------|---------|--------|
-| Python | debugpy | Supported |
-| Go | dlv (Delve) | Supported |
-| Node.js/TypeScript | js-debug | Supported |
-| Rust/C/C++ | lldb-dap | Supported |
+| Language           | Backend     | Status    |
+|--------------------|-------------|-----------|
+| Python             | debugpy     | Supported |
+| Go                 | dlv (Delve) | Supported |
+| Node.js/TypeScript | js-debug    | Supported |
+| Rust/C/C++         | lldb-dap    | Supported |
 
 Backends are auto-detected from file extension, or set explicitly with `--backend`.
 

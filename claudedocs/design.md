@@ -85,30 +85,35 @@ Backend interface for debug adapter abstraction:
 
 ```go
 type Backend interface {
-    // Local debugging: spawn the debug adapter process
-    Spawn(port string) (cmd *exec.Cmd, addr string, err error)
-    // How to connect: "tcp" or "stdio"
-    TransportMode() string
-    // DAP adapter identifier for InitializeRequest
-    AdapterID() string
-    // Build DAP launch argument map. Returns cleanup func for temp binaries (Go, Rust/C/C++ compilation).
-    LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error)
-    // Build DAP attach argument maps
-    AttachArgs(pid int) (map[string]any, error)
-    RemoteAttachArgs(host string, port int) (map[string]any, error)
-    // StopOnEntryBreakpoint returns a function name for stop-on-entry.
-    // If empty, native stopOnEntry is used. (e.g. dlv returns "main.main")
-    StopOnEntryBreakpoint() string
+// Local debugging: spawn the debug adapter process
+Spawn(port string) (cmd *exec.Cmd, addr string, err error)
+// How to connect: "tcp" or "stdio"
+TransportMode() string
+// DAP adapter identifier for InitializeRequest
+AdapterID() string
+// Build DAP launch argument map. Returns cleanup func for temp binaries (Go, Rust/C/C++ compilation).
+LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error)
+// Build DAP attach argument maps
+AttachArgs(pid int) (map[string]any, error)
+RemoteAttachArgs(host string, port int) (map[string]any, error)
+// StopOnEntryBreakpoint returns a function name for stop-on-entry.
+// If empty, native stopOnEntry is used. (e.g. dlv returns "main.main")
+StopOnEntryBreakpoint() string
 }
 ```
 
-**debugpy backend** (Python): spawns `python3 -m debugpy.adapter --host 127.0.0.1 --port PORT --log-stderr`, connects via TCP.
+**debugpy backend** (Python): spawns `python3 -m debugpy.adapter --host 127.0.0.1 --port PORT --log-stderr`, connects
+via TCP.
 
-**dlv backend** (Go): spawns `dlv dap --listen :PORT`, connects via TCP. Compiles Go source to temp binary before launch.
+**dlv backend** (Go): spawns `dlv dap --listen :PORT`, connects via TCP. Compiles Go source to temp binary before
+launch.
 
-**js-debug backend** (Node.js/TypeScript): spawns `@vscode/js-debug` standalone DAP server, connects via TCP. Multi-session architecture — handles `StartDebuggingRequest` reverse request to create child sessions. Detects `.js`, `.ts`, `.mjs`, `.cjs` files.
+**js-debug backend** (Node.js/TypeScript): spawns `@vscode/js-debug` standalone DAP server, connects via TCP.
+Multi-session architecture — handles `StartDebuggingRequest` reverse request to create child sessions. Detects `.js`,
+`.ts`, `.mjs`, `.cjs` files.
 
-**lldb-dap backend** (Rust/C/C++): spawns `lldb-dap --connection listen://127.0.0.1:PORT`, connects via TCP. Compiles Rust source to temp binary before launch. Native `stopOnEntry` works.
+**lldb-dap backend** (Rust/C/C++): spawns `lldb-dap --connection listen://127.0.0.1:PORT`, connects via TCP. Compiles
+Rust source to temp binary before launch. Native `stopOnEntry` works.
 
 ## Daemon Architecture
 

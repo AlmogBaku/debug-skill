@@ -61,6 +61,7 @@ type Backend interface {
 ```
 
 Implementations:
+
 - `debugpyBackend` — Python (debugpy)
 - `delveBackend` — Go (dlv), compiles source to temp binary
 - `jsDebugBackend` — Node.js/TypeScript (@vscode/js-debug), multi-session architecture
@@ -112,4 +113,5 @@ Implementations:
 - **Unit tests**: Mock `DAPClient` via interface for daemon/context tests
 - **Integration tests**: Real debug adapter processes, full DAP handshake
 - **E2e tests**: Build binary, run full CLI flow against all backends
-- **Test fixtures**: `testdata/python/simple.py`, `testdata/go/hello.go`, `testdata/node/simple.js`, `testdata/rust/hello.rs`
+- **Test fixtures**: `testdata/python/simple.py`, `testdata/go/hello.go`, `testdata/node/simple.js`,
+  `testdata/rust/hello.rs`

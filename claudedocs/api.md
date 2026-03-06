@@ -11,7 +11,8 @@ Start a debug session. Auto-starts daemon if needed.
 **Flags:**
 
 - `--attach <host:port>` — Attach to remote DAP server (skips local spawn, requires `--backend`)
-- `--backend <name>` — Debugger backend: `debugpy` (Python), `dlv` (Go), `js-debug` (Node.js/TypeScript), `lldb-dap` (Rust/C/C++)
+- `--backend <name>` — Debugger backend: `debugpy` (Python), `dlv` (Go), `js-debug` (Node.js/TypeScript), `lldb-dap` (
+  Rust/C/C++)
 - `--break <file:line>` — Set initial breakpoint (repeatable)
 - `--stop-on-entry` — Stop at first line instead of running to breakpoint
 - `--` — Separator for program arguments
@@ -75,7 +76,8 @@ Drain and print buffered program output (stdout/stderr) since the last stop. Cle
 dap output
 ```
 
-Useful when the program is running (e.g. between `continue` and the next breakpoint) or to fetch output without re-fetching the full context.
+Useful when the program is running (e.g. between `continue` and the next breakpoint) or to fetch output without
+re-fetching the full context.
 
 ---
 
@@ -94,7 +96,8 @@ dap eval "self.config" --frame 1
 ## Global Flags
 
 - `--json` — JSON output format (available on all commands)
-- `--session <name>` — Session name (default: `"default"`). Each session runs an independent daemon on its own socket (`~/.dap-cli/<name>.sock`). Allows multiple agents to debug simultaneously without interfering.
+- `--session <name>` — Session name (default: `"default"`). Each session runs an independent daemon on its own socket (
+  `~/.dap-cli/<name>.sock`). Allows multiple agents to debug simultaneously without interfering.
 - `--socket <path>` — Custom daemon socket path (overrides `--session`)
 
 ### Multi-Session Usage
