@@ -64,8 +64,17 @@ dap debug python script.py --break script.py:42 --session myapp
 
 ## The Debugging Mindset
 
-Debugging is investigation, not guessing. Every action should test a specific hypothesis. Don't change code hoping it
-fixes something. Understand first, fix after.
+Debugging is investigation, not guessing. Understand first, fix after.
+
+**Match your effort to the difficulty:**
+
+- **Obvious bug** (clear error message, typo, off-by-one) — just fix it, no debugger needed.
+- **Unclear bug** (1-2 suspects) — form 1-2 hypotheses, set breakpoints, check, fix.
+- **Hard bug** (lost, bizarre, multiple systems) — stop. Think from first principles. List 3+ hypotheses ranked by likelihood. Eliminate them one by one.
+
+Start simple. Escalate only when you're stuck.
+
+**The full loop when you need it:** Hypothesize → Breakpoint → Observe → Eliminate → Fix → Verify.
 
 ## Know Your State
 
@@ -76,10 +85,22 @@ output. At each stop, ask:
 - Is the call stack showing the code path I expected?
 - Does the output so far reveal anything unexpected?
 
-## Forming a Hypothesis
+## Choosing Your Approach
 
-Before setting a breakpoint: *"I believe the bug is in X because Y."* A good hypothesis is falsifiable — your next
-observation will confirm or disprove it. No hypothesis yet? Use `--stop-on-entry` and start from the top.
+- **Breakpoint + eval** — you have a suspect location and want to inspect state there. Most common.
+- **Step through** — you need to follow execution flow line by line near a known area.
+- **`dap output`** — the bug shows in program output; correlate output with execution state.
+- **`--stop-on-entry`** — you have no idea where to start. Step from the beginning.
+
+## Forming Hypotheses
+
+Before setting a breakpoint: *"I believe the bug is in X because Y."* Start with 1-2 hypotheses — that's usually enough.
+
+If those don't pan out and you're stuck, pause. Think from first principles. Write down 3+ hypotheses ranked by
+likelihood. Label them (H1, H2, H3) so you can track what each observation proves or disproves.
+
+A good hypothesis is falsifiable — your next observation will confirm or disprove it.
+No hypothesis yet? Use `--stop-on-entry` and start from the top.
 
 ## Setting Breakpoints Strategically
 
@@ -110,6 +131,15 @@ dap eval "self.config" --frame 1    # inspect different stack frame
 In interpreted languages (Python, JS), evaluate arbitrary expressions against live state — fastest way to confirm or
 rule out a theory without re-running.
 
+## Confirm or Eliminate
+
+After each observation (breakpoint hit, eval result, output), map it back to your hypotheses:
+
+- *"H1 eliminated — `items` is not empty at line 42, so it's not a loading issue."*
+- *"H2 confirmed — `user.role` is `null` here, that's the cause."*
+
+If all hypotheses are eliminated, form new ones from what you learned. Don't keep poking without a theory.
+
 ## Tracing to Root Cause
 
 Work backward from the anomaly: wrong output → wrong calculation → unexpected input → value set incorrectly. Keep
@@ -119,6 +149,11 @@ asking "where did this wrong value come from?" Fix at the source, not the sympto
 
 - `dap context` re-inspects state without stepping (useful after `continue`)
 - `dap output` drains buffered stdout/stderr without full context
+
+## Verify the Fix
+
+After applying a fix, re-run with the debugger. Set the same breakpoints. Check that the state is correct where it was
+wrong before. For simple fixes a quick sanity check is enough. For hard bugs, be thorough — run the full reproduction.
 
 ## Cleanup
 
