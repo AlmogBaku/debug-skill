@@ -48,19 +48,57 @@ Use `dap debug` to launch a program under the debugger:
 # Single breakpoint
 dap debug python script.py --break script.py:42
 
-# Multiple breakpoints (bisect to narrow root cause)
+# Multiple breakpoints — bisect to narrow root cause
 dap debug go ./cmd/server --break main.go:15 --break main.go:30
+
+# Breakpoints across files
+dap debug python app.py --break app.py:42 --break db.py:15
 
 # No hypothesis yet — stop at program entry
 dap debug python script.py --stop-on-entry
 
 # With session isolation
 dap debug python script.py --break script.py:42 --session myapp
+
+# Attach to a remote debugger (e.g. running in a container)
+dap debug --attach localhost:5678 --backend debugpy --break handler.py:15
 ```
 
 **Session isolation:** `--session <name>` is optional but recommended to isolate from other concurrent agents.
 `$CLAUDE_SESSION_ID` is injected by startup hooks but may be unset — use a short descriptive name as fallback
 (e.g. `--session myapp`).
+
+## What You Get Back
+
+Every execution command (`dap debug`, `dap step`, `dap continue`) returns full context automatically.
+No follow-up calls needed — read it, think, act.
+
+```
+Stopped: breakpoint
+Function: process_order
+File: app.py:42
+
+Source:
+   40 | total = 0
+   41 | for item in items:
+   42>| price = item.get_price()
+   43 | total += price
+   44 | return total
+
+Locals:
+  items (list) = [<Item>, <Item>]
+  total (int) = 0
+
+Stack:
+  #0 process_order at app.py:42
+  #1 handle_request at server.py:88
+```
+
+At each stop, ask:
+- Do the local variables have the values I expected?
+- Is the call stack showing the code path I expected?
+
+If the program crashes or exits, dap returns the exit code and any buffered output instead.
 
 ## The Debugging Mindset
 
@@ -76,13 +114,6 @@ Start simple. Escalate only when you're stuck. As bugs get harder, invest more i
 debugger, and reasoning about what you see.
 
 **The loop:** Hypothesize → Breakpoint → Observe → Eliminate → Fix → Verify.
-
-## Choosing Your Approach
-
-- **Breakpoint + eval** — you have a suspect location and want to inspect state there. Most common.
-- **Step through** — you need to follow execution flow line by line near a known area.
-- **`dap output`** — the bug shows in program output; correlate output with execution state.
-- **`--stop-on-entry`** — you have no idea where to start. Step from the beginning.
 
 ## Forming Hypotheses
 
@@ -123,14 +154,9 @@ dap eval "self.config" --frame 1    # inspect different stack frame
 In interpreted languages (Python, JS), evaluate arbitrary expressions against live state — fastest way to confirm or
 rule out a theory without re-running.
 
-## Reading Your State
-
-Every execution command (`dap debug`, `dap step`, `dap continue`) returns full context automatically: current location,
-source, locals, call stack, and output. At each stop, ask:
-
-- Do the local variables have the values I expected?
-- Is the call stack showing the code path I expected?
-- Does the output so far reveal anything unexpected?
+Use `dap context` to re-inspect current state without stepping (useful after `continue`).
+Use `dap context --frame N` to view locals and source in a different stack frame.
+Use `dap output` to drain buffered stdout/stderr without full context.
 
 ## Confirm or Eliminate
 
@@ -141,15 +167,29 @@ After each observation, map it back to your hypotheses:
 
 If all hypotheses are eliminated, form new ones from what you learned. Don't keep poking without a theory.
 
-## Tracing to Root Cause
+Trace backward from the anomaly: wrong output → wrong calculation → unexpected input → value set incorrectly.
+Keep asking "where did this wrong value come from?" Fix at the source, not the symptom.
 
-Work backward from the anomaly: wrong output → wrong calculation → unexpected input → value set incorrectly. Keep
-asking "where did this wrong value come from?" Fix at the source, not the symptom.
+## Example
 
-## Tips
+Bug: `process_order` returns 0 for valid orders.
 
-- `dap context` re-inspects state without stepping (useful after `continue`)
-- `dap output` drains buffered stdout/stderr without full context
+Hypothesis: `items` is empty when it shouldn't be.
+
+```bash
+dap debug python app.py --break app.py:42
+# Stopped at line 42. Locals show: items = [], total = 0
+# H1 confirmed — items is empty.
+
+dap eval "len(db.get_items(order_id))"
+# Returns 3 — items exist in DB, not passed correctly.
+
+dap step out
+# In caller: get_items() returns items, but caller passes [] to process_order.
+# Root cause found. Fix the caller. Stop the session.
+
+dap stop
+```
 
 ## Verify the Fix
 
