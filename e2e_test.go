@@ -161,6 +161,69 @@ func TestE2E_JSONOutput(t *testing.T) {
 	}
 }
 
+// TestE2E_DebugPython_Scheduler exercises cross-file breakpoints across a
+// multifile Python app: main.py → runner.py → resolver.py.
+func TestE2E_DebugPython_Scheduler(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	root := projectRoot(t)
+	mainPath := filepath.Join(root, "testdata", "python", "scheduler", "main.py")
+	resolverPath := filepath.Join(root, "testdata", "python", "scheduler", "resolver.py")
+
+	// 1. Debug main.py with a cross-file breakpoint inside resolver.py's visit()
+	out, err := env.run("debug", mainPath, "--break", resolverPath+":17")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+	if !strings.Contains(out, "resolver.py") {
+		t.Errorf("expected resolver.py in location, got:\n%s", out)
+	}
+
+	// 2. Eval the current task name
+	out, err = env.run("eval", "task.name")
+	if err != nil {
+		t.Fatalf("eval failed: %v\n%s", err, out)
+	}
+	if out == "" {
+		t.Errorf("expected task.name result, got empty")
+	}
+
+	// 3. Continue until program terminates — visit() is called once per task,
+	// so the breakpoint fires multiple times before the program exits.
+	var finalOut string
+	for range 10 {
+		out, err = env.run("continue")
+		if err != nil {
+			t.Fatalf("continue failed: %v\n%s", err, out)
+		}
+		if strings.Contains(out, "Program terminated") {
+			finalOut = out
+			break
+		}
+	}
+	if finalOut == "" {
+		t.Fatalf("program did not terminate after 10 continues")
+	}
+	if !strings.Contains(finalOut, "BUG!") {
+		t.Errorf("expected BUG! in program output (intentional bug), got:\n%s", finalOut)
+	}
+
+	// 4. Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "OK") {
+		t.Errorf("expected OK, got:\n%s", out)
+	}
+}
+
 // --- Go tests ---
 
 // TestE2E_DebugGo runs a full Go debug session via dlv: debug → step → eval → continue → stop.

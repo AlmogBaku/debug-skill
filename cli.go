@@ -9,6 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// breakpointFlag is a repeatable --break flag that displays as "file:line" in help.
+type breakpointFlag []string
+
+func (b *breakpointFlag) String() string  { return strings.Join(*b, ", ") }
+func (b *breakpointFlag) Set(v string) error { *b = append(*b, v); return nil }
+func (b *breakpointFlag) Type() string    { return "file:line" }
+
 // globalFlags holds flags shared across commands.
 var globalFlags struct {
 	jsonOutput bool
@@ -105,10 +112,11 @@ func noDaemonError(err error) error {
 
 func newDebugCmd() *cobra.Command {
 	var (
-		breaks      []string
-		attach      string
-		backend     string
-		stopOnEntry bool
+		breaks           breakpointFlag
+		attach           string
+		backend          string
+		stopOnEntry      bool
+		exceptionFilters []string
 	)
 
 	cmd := &cobra.Command{
@@ -117,7 +125,7 @@ func newDebugCmd() *cobra.Command {
 		Long: `Start a debug session. Auto-starts the daemon if not already running.
 
 Backend is auto-detected from the script extension. Override with --backend.
-Use --break to set initial breakpoints. Use --stop-on-entry to stop at the first line.
+Use --break file:line to set breakpoints (repeatable). Use --stop-on-entry to stop at the first line.
 Use -- to pass arguments to the debugged program.
 Use --attach to connect to an already-running remote DAP server (skips local spawn,
 requires --backend).
@@ -142,10 +150,11 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 			}
 
 			debugArgs := DebugArgs{
-				Breaks:      breaks,
-				StopOnEntry: stopOnEntry,
-				Attach:      attach,
-				Backend:     backend,
+				Breaks:           []string(breaks),
+				StopOnEntry:      stopOnEntry,
+				Attach:           attach,
+				Backend:          backend,
+				ExceptionFilters: exceptionFilters,
 			}
 			if len(args) > 0 {
 				debugArgs.Script = args[0]
@@ -172,10 +181,17 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 		},
 	}
 
-	cmd.Flags().StringArrayVar(&breaks, "break", nil, "Set breakpoint at file:line (repeatable)")
+	cmd.Flags().Var(&breaks, "break", "Add a breakpoint (repeatable: --break a.py:10 --break b.py:20)")
 	cmd.Flags().StringVar(&attach, "attach", "", "Attach to remote debugger at host:port")
 	cmd.Flags().StringVar(&backend, "backend", "", "Debugger backend (debugpy, dlv, js-debug, lldb-dap); auto-detected from file extension")
 	cmd.Flags().BoolVar(&stopOnEntry, "stop-on-entry", false, "Stop at first line")
+	cmd.Flags().StringArrayVar(&exceptionFilters, "break-on-exception", nil,
+		"Stop on exception; repeatable (e.g. --break-on-exception raised).\n"+
+			"Filter IDs are backend-specific:\n"+
+			"  debugpy (Python): raised, uncaught, userUnhandled\n"+
+			"  dlv (Go):         all, uncaught\n"+
+			"  js-debug (Node):  all, uncaught\n"+
+			"  lldb-dap:         on-throw, on-catch")
 
 	return cmd
 }
@@ -247,7 +263,9 @@ func newContinueCmd() *cobra.Command {
 		Long: `Resume execution until the next breakpoint or program exit.
 Blocks until stopped, then returns auto-context.
 If the program exits, prints "Program terminated" and the exit code.`,
-		Example: `  dap continue`,
+		Example: `  dap continue
+  dap continue --session worker   # resume in a named session
+  dap continue --json             # machine-readable output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "continue"})
 			if err != nil {
@@ -327,7 +345,9 @@ func newOutputCmd() *cobra.Command {
 		Long: `Drain and print buffered stdout/stderr since the last stop. Clears the buffer.
 Use when the program is running (between 'continue' and next breakpoint), or to
 check output without re-fetching full context.`,
-		Example: `  dap output`,
+		Example: `  dap output
+  dap output --json               # machine-readable output
+  dap output --session worker`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "output"})
 			if err != nil {

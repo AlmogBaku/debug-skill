@@ -16,3 +16,4 @@ testdata/rust/*.out
 # OS
 .DS_Store
 Thumbs.db
+.worktrees/

@@ -15,6 +15,11 @@ Start a debug session. Auto-starts daemon if needed.
   Rust/C/C++)
 - `--break <file:line>` — Set initial breakpoint (repeatable)
 - `--stop-on-entry` — Stop at first line instead of running to breakpoint
+- `--break-on-exception <filter>` — Stop on exception; repeatable. Filter IDs are backend-specific:
+  - `debugpy` (Python): `raised`, `uncaught`, `userUnhandled`
+  - `dlv` (Go): `all`, `uncaught`
+  - `js-debug` (Node): `all`, `uncaught`
+  - `lldb-dap`: `on-throw`, `on-catch`
 - `--` — Separator for program arguments
 
 **Examples:**
@@ -27,6 +32,8 @@ dap debug main.go --break main.go:8
 dap debug server.js --break server.js:15
 dap debug hello.rs --break hello.rs:4
 dap debug app.py -- --config prod.yaml --verbose
+dap debug app.py --break-on-exception raised
+dap debug app.py --break-on-exception uncaught
 ```
 
 **Returns:** Auto-context at first stop point.

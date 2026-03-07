@@ -72,12 +72,13 @@ type EvalResult struct {
 
 // DebugArgs are arguments for the "debug" command.
 type DebugArgs struct {
-	Script      string   `json:"script"`
-	Backend     string   `json:"backend,omitempty"`
-	Breaks      []string `json:"breaks,omitempty"`      // "file:line" format
-	StopOnEntry bool     `json:"stop_on_entry,omitempty"`
-	Attach      string   `json:"attach,omitempty"`       // "host:port" for remote
-	ProgramArgs []string `json:"program_args,omitempty"`
+	Script           string   `json:"script"`
+	Backend          string   `json:"backend,omitempty"`
+	Breaks           []string `json:"breaks,omitempty"`            // "file:line" format
+	StopOnEntry      bool     `json:"stop_on_entry,omitempty"`
+	Attach           string   `json:"attach,omitempty"`            // "host:port" for remote
+	ProgramArgs      []string `json:"program_args,omitempty"`
+	ExceptionFilters []string `json:"exception_filters,omitempty"` // backend-specific filter IDs
 }
 
 // StepArgs are arguments for the "step" command.
