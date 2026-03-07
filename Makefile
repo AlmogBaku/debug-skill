@@ -15,8 +15,7 @@ test:  ## Run tests
 	go test ./...
 
 lint:  ## Run linters
-	go vet ./...
-	@which staticcheck > /dev/null 2>&1 && staticcheck ./... || echo "staticcheck not installed, skipping"
+	golangci-lint run ./...
 
 clean:  ## Clean up build artifacts
 	rm -f dap

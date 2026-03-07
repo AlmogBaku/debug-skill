@@ -160,7 +160,7 @@ func (d *Daemon) readLoop() {
 			resp.RequestSeq = m.Seq
 			resp.Seq = 0
 			resp.Success = true
-			d.client.send(resp)
+			_ = d.client.send(resp)
 
 			if d.adapterAddr == "" {
 				log.Printf("startDebugging: no adapter address for child session")
@@ -221,7 +221,7 @@ func (d *Daemon) Serve(socketPath string) error {
 	}
 
 	// Remove stale socket
-	os.Remove(socketPath)
+	_ = os.Remove(socketPath)
 
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -231,8 +231,8 @@ func (d *Daemon) Serve(socketPath string) error {
 
 	// Write PID file
 	pidPath := socketPath + ".pid"
-	os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600)
-	defer os.Remove(pidPath)
+	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0600)
+	defer func() { _ = os.Remove(pidPath) }()
 
 	// Cleanup on signals
 	sigCh := make(chan os.Signal, 1)
@@ -266,7 +266,7 @@ func (d *Daemon) Serve(socketPath string) error {
 }
 
 func (d *Daemon) handleConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var req Request
 	if err := ReadIPC(conn, &req); err != nil {
@@ -479,7 +479,7 @@ func (d *Daemon) handleStep(rawArgs json.RawMessage) *Response {
 
 	var args StepArgs
 	if rawArgs != nil {
-		json.Unmarshal(rawArgs, &args)
+		_ = json.Unmarshal(rawArgs, &args)
 	}
 	if args.Mode == "" {
 		args.Mode = "over"
@@ -528,7 +528,7 @@ func (d *Daemon) handleContext(rawArgs json.RawMessage) *Response {
 
 	var args ContextArgs
 	if rawArgs != nil {
-		json.Unmarshal(rawArgs, &args)
+		_ = json.Unmarshal(rawArgs, &args)
 	}
 
 	threadID := resolveThreadID(d.threadID)
@@ -609,13 +609,13 @@ func (d *Daemon) handleStop() *Response {
 
 func (d *Daemon) stopSession() {
 	if d.client != nil {
-		d.client.DisconnectRequest(true)
+		_ = d.client.DisconnectRequest(true)
 		d.client.Close()
 		d.client = nil
 	}
 	if d.adapterCmd != nil && d.adapterCmd.Process != nil {
-		d.adapterCmd.Process.Kill()
-		d.adapterCmd.Wait()
+		_ = d.adapterCmd.Process.Kill()
+		_ = d.adapterCmd.Wait()
 		d.adapterCmd = nil
 	}
 	if d.cleanupFn != nil {
@@ -627,11 +627,11 @@ func (d *Daemon) stopSession() {
 func (d *Daemon) cleanup() {
 	d.stopSession()
 	if d.listener != nil {
-		d.listener.Close()
+		_ = d.listener.Close()
 		d.listener = nil
 	}
-	os.Remove(d.socketPath)
-	os.Remove(d.socketPath + ".pid")
+	_ = os.Remove(d.socketPath)
+	_ = os.Remove(d.socketPath + ".pid")
 }
 
 // startAdapter spawns the debug adapter and connects the DAP client.
@@ -645,8 +645,8 @@ func (d *Daemon) startAdapter(backend Backend) error {
 	d.adapterAddr = addr
 	client, err := newDAPClient(addr)
 	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return fmt.Errorf("connecting to adapter: %w", err)
 	}
 	d.client = client
@@ -691,7 +691,7 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	}
 
 	// Initialize child
-	childClient.InitializeRequest(d.backend.AdapterID())
+	_ = childClient.InitializeRequest(d.backend.AdapterID())
 	for {
 		cmsg, cerr := childClient.ReadMessage()
 		if cerr != nil {
@@ -704,7 +704,7 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	}
 
 	// Launch child with config from startDebugging
-	childClient.LaunchRequestWithArgs(config)
+	_ = childClient.LaunchRequestWithArgs(config)
 
 	// Read until InitializedEvent (child may send it immediately)
 	for {
@@ -722,14 +722,14 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	// Re-send breakpoints on child session
 	breaksByFile := groupBreakpoints(d.sessionBreaks)
 	for file, lines := range breaksByFile {
-		childClient.SetBreakpointsRequest(file, lines)
+		_ = childClient.SetBreakpointsRequest(file, lines)
 	}
 	childExceptionFilters := d.sessionExceptionFilters
 	if childExceptionFilters == nil {
 		childExceptionFilters = []string{}
 	}
-	childClient.SetExceptionBreakpointsRequest(childExceptionFilters)
-	childClient.ConfigurationDoneRequest()
+	_ = childClient.SetExceptionBreakpointsRequest(childExceptionFilters)
+	_ = childClient.ConfigurationDoneRequest()
 
 	// Swap to child session — readLoop continues reading from child
 	d.client = childClient
@@ -787,7 +787,7 @@ func findFreePort() int {
 	if err != nil {
 		return 5678 // fallback
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
 }
 
@@ -806,15 +806,15 @@ func EnsureDaemon(socketPath string) (string, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 500*time.Millisecond)
 	if err == nil {
 		// Daemon is running, verify with ping
-		WriteIPC(conn, &Request{Command: "ping"})
+		_ = WriteIPC(conn, &Request{Command: "ping"})
 		var resp Response
 		if err := ReadIPC(conn, &resp); err == nil && resp.Status == "ok" {
-			conn.Close()
+			_ = conn.Close()
 			return socketPath, nil
 		}
-		conn.Close()
+		_ = conn.Close()
 		// Stale socket, remove it
-		os.Remove(socketPath)
+		_ = os.Remove(socketPath)
 	}
 
 	// Fork self as daemon
@@ -831,13 +831,13 @@ func EnsureDaemon(socketPath string) (string, error) {
 		return "", fmt.Errorf("starting daemon: %w", err)
 	}
 	// Detach - don't wait for daemon
-	cmd.Process.Release()
+	_ = cmd.Process.Release()
 
 	// Wait for socket to appear
 	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if conn, err := net.DialTimeout("unix", socketPath, 200*time.Millisecond); err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return socketPath, nil
 		}
 	}
@@ -851,10 +851,10 @@ func SendCommand(socketPath string, req *Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connecting to daemon: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set a generous timeout for commands that block (debug, step, continue)
-	conn.SetDeadline(time.Now().Add(5 * time.Minute))
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 
 	if err := WriteIPC(conn, req); err != nil {
 		return nil, fmt.Errorf("sending command: %w", err)

@@ -36,7 +36,7 @@ func newDAPClientFromRWC(rwc io.ReadWriteCloser) *DAPClient {
 // Close closes the underlying connection.
 func (c *DAPClient) Close() {
 	if c.rwc != nil {
-		c.rwc.Close()
+		_ = c.rwc.Close()
 	}
 }
 

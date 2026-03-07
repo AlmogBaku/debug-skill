@@ -3,7 +3,6 @@ package dap
 import (
 	"bufio"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,8 +107,8 @@ func (b *debugpyBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	select {
 	case <-ready:
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return nil, "", fmt.Errorf("debugpy adapter did not start within 10s")
 	}
 
@@ -152,20 +151,6 @@ func (b *debugpyBackend) RemoteAttachArgs(host string, port int) (map[string]any
 		"request":    "attach",
 		"justMyCode": false,
 	}, nil
-}
-
-// waitForPort polls until the given TCP address is connectable.
-func waitForPort(addr string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 200*time.Millisecond)
-		if err == nil {
-			conn.Close()
-			return nil
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for %s", addr)
 }
 
 // --- delve backend (Go) ---
@@ -222,14 +207,14 @@ func (b *delveBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	select {
 	case addr, ok := <-addrCh:
 		if !ok || addr == "" {
-			cmd.Process.Kill()
-			cmd.Wait()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
 			return nil, "", fmt.Errorf("dlv exited without reporting listen address")
 		}
 		return cmd, addr, nil
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return nil, "", fmt.Errorf("dlv did not start within 10s")
 	}
 }
@@ -263,16 +248,16 @@ func (b *delveBackend) LaunchArgs(program string, stopOnEntry bool, args []strin
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating temp file: %w", err)
 		}
-		tmpBin.Close()
+		_ = tmpBin.Close()
 
 		build := exec.Command("go", "build", "-gcflags=all=-N -l", "-o", tmpBin.Name(), ".")
 		build.Dir = pkgDir
 		if out, err := build.CombinedOutput(); err != nil {
-			os.Remove(tmpBin.Name())
+			_ = os.Remove(tmpBin.Name())
 			return nil, nil, fmt.Errorf("compiling Go program: %s\n%s", err, out)
 		}
 		absProgram = tmpBin.Name()
-		cleanupFn = func() { os.Remove(absProgram) }
+		cleanupFn = func() { _ = os.Remove(absProgram) }
 	}
 
 	m := map[string]any{
@@ -430,14 +415,14 @@ func (b *lldbBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	select {
 	case addr, ok := <-addrCh:
 		if !ok || addr == "" {
-			cmd.Process.Kill()
-			cmd.Wait()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
 			return nil, "", fmt.Errorf("lldb-dap exited without reporting listen address")
 		}
 		return cmd, addr, nil
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return nil, "", fmt.Errorf("lldb-dap did not start within 10s")
 	}
 }
@@ -462,32 +447,32 @@ func (b *lldbBackend) LaunchArgs(program string, stopOnEntry bool, args []string
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating temp file: %w", err)
 		}
-		tmpBin.Close()
+		_ = tmpBin.Close()
 		build := exec.Command("rustc", "-g", "-o", tmpBin.Name(), absProgram)
 		if out, err := build.CombinedOutput(); err != nil {
-			os.Remove(tmpBin.Name())
+			_ = os.Remove(tmpBin.Name())
 			return nil, nil, fmt.Errorf("compiling Rust program: %s\n%s", err, out)
 		}
 		absProgram = tmpBin.Name()
-		cleanupFn = func() { os.Remove(absProgram) }
+		cleanupFn = func() { _ = os.Remove(absProgram) }
 	case ".c", ".cpp", ".cc":
 		// Compile C/C++ source with debug symbols
 		tmpBin, err := os.CreateTemp("", "dap-cc-*")
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating temp file: %w", err)
 		}
-		tmpBin.Close()
+		_ = tmpBin.Close()
 		compiler := "cc"
 		if ext == ".cpp" || ext == ".cc" {
 			compiler = "c++"
 		}
 		build := exec.Command(compiler, "-g", "-o", tmpBin.Name(), absProgram)
 		if out, err := build.CombinedOutput(); err != nil {
-			os.Remove(tmpBin.Name())
+			_ = os.Remove(tmpBin.Name())
 			return nil, nil, fmt.Errorf("compiling C/C++ program: %s\n%s", err, out)
 		}
 		absProgram = tmpBin.Name()
-		cleanupFn = func() { os.Remove(absProgram) }
+		cleanupFn = func() { _ = os.Remove(absProgram) }
 	}
 
 	m := map[string]any{
@@ -576,14 +561,14 @@ func (b *jsDebugBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	select {
 	case addr, ok := <-addrCh:
 		if !ok || addr == "" {
-			cmd.Process.Kill()
-			cmd.Wait()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
 			return nil, "", fmt.Errorf("js-debug exited without reporting listen address")
 		}
 		return cmd, addr, nil
 	case <-time.After(10 * time.Second):
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return nil, "", fmt.Errorf("js-debug did not start within 10s")
 	}
 }

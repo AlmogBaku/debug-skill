@@ -70,7 +70,7 @@ func TestWriteReadIPC_Response(t *testing.T) {
 func TestReadIPC_TooLarge(t *testing.T) {
 	var buf bytes.Buffer
 	// Write a length that exceeds the 10MB limit
-	WriteIPC(&buf, &struct{ X string }{X: "test"})
+	_ = WriteIPC(&buf, &struct{ X string }{X: "test"})
 	// Manually corrupt the length to be huge
 	data := buf.Bytes()
 	data[0] = 0xFF

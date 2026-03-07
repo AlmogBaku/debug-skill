@@ -49,10 +49,10 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 
 	env := &e2eEnv{t: t, binary: binary, socketPath: socketPath, daemon: daemon}
 	t.Cleanup(func() {
-		exec.Command(binary, "stop", "--socket", socketPath).Run()
-		daemon.Process.Kill()
-		daemon.Wait()
-		os.Remove(socketPath)
+		_ = exec.Command(binary, "stop", "--socket", socketPath).Run()
+		_ = daemon.Process.Kill()
+		_ = daemon.Wait()
+		_ = os.Remove(socketPath)
 	})
 	return env
 }
@@ -469,8 +469,8 @@ func TestE2E_RemoteAttach_Python(t *testing.T) {
 		t.Fatalf("starting debugpy: %v", err)
 	}
 	t.Cleanup(func() {
-		debugpy.Process.Kill()
-		debugpy.Wait()
+		_ = debugpy.Process.Kill()
+		_ = debugpy.Wait()
 	})
 
 	// Wait for debugpy to start listening.
@@ -551,12 +551,12 @@ func TestE2E_MultiSession(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		exec.Command(binary, "stop", "--socket", socketA).Run()
-		exec.Command(binary, "stop", "--socket", socketB).Run()
-		daemonA.Process.Kill()
-		daemonA.Wait()
-		daemonB.Process.Kill()
-		daemonB.Wait()
+		_ = exec.Command(binary, "stop", "--socket", socketA).Run()
+		_ = exec.Command(binary, "stop", "--socket", socketB).Run()
+		_ = daemonA.Process.Kill()
+		_ = daemonA.Wait()
+		_ = daemonB.Process.Kill()
+		_ = daemonB.Wait()
 	})
 
 	runA := func(args ...string) (string, error) {
@@ -626,7 +626,7 @@ func TestE2E_MultiSession(t *testing.T) {
 	}
 
 	// Clean up B
-	runB("stop")
+	_, _ = runB("stop")
 }
 
 // TestE2E_IdleTimeout verifies daemon exits after idle timeout.
@@ -662,7 +662,7 @@ func TestE2E_IdleTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("daemon not reachable: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// Wait for idle timeout to fire (1s + buffer)
 	time.Sleep(3 * time.Second)
@@ -673,7 +673,7 @@ func TestE2E_IdleTimeout(t *testing.T) {
 		t.Errorf("daemon still running after idle timeout")
 	}
 
-	daemon.Wait() // reap
+	_ = daemon.Wait() // reap
 }
 
 // --- Helpers ---
@@ -718,6 +718,6 @@ func findFreePortForTest(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("finding free port: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
 }
