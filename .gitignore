@@ -9,6 +9,12 @@ coverage.out
 testdata/go/__debug_bin*
 testdata/rust/*.out
 
+# python
+.venv
+.pytest_cache
+__pycache__
+
+
 # IDE
 .idea/
 .serena/

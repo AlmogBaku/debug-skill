@@ -34,8 +34,8 @@ func DefaultSocketPath() string {
 
 // Daemon holds the stateful debug session.
 type Daemon struct {
-	client   *DAPClient
-	backend  Backend
+	client     *DAPClient
+	backend    Backend
 	adapterCmd *exec.Cmd
 
 	// Async event dispatch
@@ -43,7 +43,7 @@ type Daemon struct {
 
 	// Output buffer (bounded at write time)
 	mu            sync.Mutex
-	outputLines   []string       // complete lines, capped at maxOutputLines
+	outputLines   []string        // complete lines, capped at maxOutputLines
 	outputPartial strings.Builder // last incomplete line (no \n yet)
 
 	// Session state
@@ -55,12 +55,12 @@ type Daemon struct {
 	cleanupFn func()
 
 	// Adapter address and config for child session creation (js-debug multi-session)
-	adapterAddr            string
-	sessionBreaks          []string // stored "file:line" breakpoints for child session re-init
+	adapterAddr             string
+	sessionBreaks           []string // stored "file:line" breakpoints for child session re-init
 	sessionExceptionFilters []string // stored exception filter IDs for child session re-init
 
 	// Socket
-	listener net.Listener
+	listener   net.Listener
 	socketPath string
 
 	// Idle timeout

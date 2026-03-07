@@ -81,11 +81,11 @@ func (c *DAPClient) InitializeRequest(adapterID string) error {
 	request.Arguments = godap.InitializeRequestArguments{
 		AdapterID:              adapterID,
 		PathFormat:             "path",
-		LinesStartAt1:         true,
-		ColumnsStartAt1:       true,
-		SupportsVariableType:  true,
+		LinesStartAt1:          true,
+		ColumnsStartAt1:        true,
+		SupportsVariableType:   true,
 		SupportsVariablePaging: true,
-		Locale:                "en-us",
+		Locale:                 "en-us",
 	}
 	return c.send(request)
 }

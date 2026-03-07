@@ -12,9 +12,9 @@ import (
 // breakpointFlag is a repeatable --break flag that displays as "file:line" in help.
 type breakpointFlag []string
 
-func (b *breakpointFlag) String() string  { return strings.Join(*b, ", ") }
+func (b *breakpointFlag) String() string     { return strings.Join(*b, ", ") }
 func (b *breakpointFlag) Set(v string) error { *b = append(*b, v); return nil }
-func (b *breakpointFlag) Type() string    { return "file:line" }
+func (b *breakpointFlag) Type() string       { return "file:line" }
 
 // globalFlags holds flags shared across commands.
 var globalFlags struct {

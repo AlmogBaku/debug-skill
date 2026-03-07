@@ -115,8 +115,8 @@ func (b *debugpyBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	return cmd, "127.0.0.1:" + actualPort, nil
 }
 
-func (b *debugpyBackend) TransportMode() string       { return "tcp" }
-func (b *debugpyBackend) AdapterID() string            { return "debugpy" }
+func (b *debugpyBackend) TransportMode() string         { return "tcp" }
+func (b *debugpyBackend) AdapterID() string             { return "debugpy" }
 func (b *debugpyBackend) StopOnEntryBreakpoint() string { return "" }
 
 func (b *debugpyBackend) LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error) {
@@ -219,8 +219,8 @@ func (b *delveBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	}
 }
 
-func (b *delveBackend) TransportMode() string       { return "tcp" }
-func (b *delveBackend) AdapterID() string            { return "go" }
+func (b *delveBackend) TransportMode() string         { return "tcp" }
+func (b *delveBackend) AdapterID() string             { return "go" }
 func (b *delveBackend) StopOnEntryBreakpoint() string { return "main.main" }
 
 func (b *delveBackend) LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error) {
@@ -282,10 +282,10 @@ func (b *delveBackend) AttachArgs(pid int) (map[string]any, error) {
 
 func (b *delveBackend) RemoteAttachArgs(host string, port int) (map[string]any, error) {
 	return map[string]any{
-		"request":    "attach",
-		"mode":       "remote",
-		"host":       host,
-		"port":       port,
+		"request":        "attach",
+		"mode":           "remote",
+		"host":           host,
+		"port":           port,
 		"substitutePath": []any{},
 	}, nil
 }
@@ -427,8 +427,8 @@ func (b *lldbBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	}
 }
 
-func (b *lldbBackend) TransportMode() string       { return "tcp" }
-func (b *lldbBackend) AdapterID() string            { return "lldb-dap" }
+func (b *lldbBackend) TransportMode() string         { return "tcp" }
+func (b *lldbBackend) AdapterID() string             { return "lldb-dap" }
 func (b *lldbBackend) StopOnEntryBreakpoint() string { return "" } // native stopOnEntry works
 
 func (b *lldbBackend) LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error) {
@@ -573,8 +573,8 @@ func (b *jsDebugBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	}
 }
 
-func (b *jsDebugBackend) TransportMode() string       { return "tcp" }
-func (b *jsDebugBackend) AdapterID() string            { return "pwa-node" }
+func (b *jsDebugBackend) TransportMode() string         { return "tcp" }
+func (b *jsDebugBackend) AdapterID() string             { return "pwa-node" }
 func (b *jsDebugBackend) StopOnEntryBreakpoint() string { return "" }
 
 func (b *jsDebugBackend) LaunchArgs(program string, stopOnEntry bool, args []string) (map[string]any, func(), error) {
