@@ -72,18 +72,10 @@ Debugging is investigation, not guessing. Understand first, fix after.
 - **Unclear bug** (1-2 suspects) — form 1-2 hypotheses, set breakpoints, check, fix.
 - **Hard bug** (lost, bizarre, multiple systems) — stop. Think from first principles. List 3+ hypotheses ranked by likelihood. Eliminate them one by one.
 
-Start simple. Escalate only when you're stuck.
+Start simple. Escalate only when you're stuck. As bugs get harder, invest more in hypothesizing, exploring via the
+debugger, and reasoning about what you see.
 
-**The full loop when you need it:** Hypothesize → Breakpoint → Observe → Eliminate → Fix → Verify.
-
-## Know Your State
-
-Every `dap` execution command returns full context automatically: current location, source, locals, call stack, and
-output. At each stop, ask:
-
-- Do the local variables have the values I expected?
-- Is the call stack showing the code path I expected?
-- Does the output so far reveal anything unexpected?
+**The loop:** Hypothesize → Breakpoint → Observe → Eliminate → Fix → Verify.
 
 ## Choosing Your Approach
 
@@ -131,9 +123,18 @@ dap eval "self.config" --frame 1    # inspect different stack frame
 In interpreted languages (Python, JS), evaluate arbitrary expressions against live state — fastest way to confirm or
 rule out a theory without re-running.
 
+## Reading Your State
+
+Every execution command (`dap debug`, `dap step`, `dap continue`) returns full context automatically: current location,
+source, locals, call stack, and output. At each stop, ask:
+
+- Do the local variables have the values I expected?
+- Is the call stack showing the code path I expected?
+- Does the output so far reveal anything unexpected?
+
 ## Confirm or Eliminate
 
-After each observation (breakpoint hit, eval result, output), map it back to your hypotheses:
+After each observation, map it back to your hypotheses:
 
 - *"H1 eliminated — `items` is not empty at line 42, so it's not a loading issue."*
 - *"H2 confirmed — `user.role` is `null` here, that's the cause."*
