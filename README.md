@@ -37,14 +37,14 @@ AI coding agents (Claude Code, Codex, Opencode, Cursor) are stuck with `print` s
 
 | Skill | Purpose |
 |---|---|
-| `debugging-code` | The debugging workflow — breakpoints, stepping, inspection |
+| `dap-debug` | The debugging workflow — breakpoints, stepping, inspection |
 | `dap-setup` | Install `dap` and language backends, known limitations |
 
 ### Install for Claude Code
 
 ```
 /plugin marketplace add AlmogBaku/debug-skill
-/plugin install debugging-code@debug-skill-marketplace
+/plugin install dap-debug@debug-skill-marketplace
 /plugin install dap-setup@debug-skill-marketplace
 ```
 

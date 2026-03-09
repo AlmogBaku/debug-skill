@@ -6,7 +6,7 @@ description: Install and configure the dap debugger CLI and its language backend
 # Debugger Setup
 
 This skill installs and configures `dap` and its language-specific debug adapters.
-Run this before using the `debugging-code` skill if `dap` is not yet installed or a backend is missing.
+Run this before using the `dap-debug` skill if `dap` is not yet installed or a backend is missing.
 
 ## Install dap
 
