@@ -8,6 +8,7 @@ coverage.out
 # Test artifacts
 testdata/go/__debug_bin*
 testdata/rust/*.out
+__pycache__/
 
 # IDE
 .idea/
