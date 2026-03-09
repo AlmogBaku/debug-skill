@@ -63,8 +63,10 @@ func getFullContext(d *Daemon, threadID, frameID int) (*ContextResult, error) {
 		}
 	}
 
-	// 2. Build stack and location from frames
+	// 2. Build stack and location from frames; record DAP frame IDs for eval
+	d.frameIDs = make([]int, len(frames))
 	for i, f := range frames {
+		d.frameIDs[i] = f.Id
 		sf := StackFrame{
 			Frame:    i,
 			Function: f.Name,
