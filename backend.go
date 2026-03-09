@@ -306,22 +306,26 @@ func checkMacOSDevMode() error {
 		"See: https://github.com/go-delve/delve/blob/master/Documentation/installation/README.md#macos-considerations")
 }
 
-// findLLDBDap searches for the lldb-dap binary.
+// findLLDBDap searches for the lldb-dap binary, preferring newer versions.
+// The Xcode Command Line Tools ship lldb-dap v17 which lacks the --connection
+// flag required by dap. Homebrew llvm (v18+) is checked first on macOS.
 // Returns the path or "" if not found.
 func findLLDBDap() string {
-	// Check PATH first
-	if p, err := exec.LookPath("lldb-dap"); err == nil {
-		return p
-	}
-	// Homebrew LLVM on macOS
+	// Prefer Homebrew LLVM on macOS — Xcode CLT ships v17 which is too old.
 	for _, p := range []string{
 		"/opt/homebrew/opt/llvm/bin/lldb-dap",
 		"/usr/local/opt/llvm/bin/lldb-dap",
-		"/usr/bin/lldb-dap",
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	// Fall back to whatever is in PATH (may be old Xcode CLT version)
+	if p, err := exec.LookPath("lldb-dap"); err == nil {
+		return p
+	}
+	if _, err := os.Stat("/usr/bin/lldb-dap"); err == nil {
+		return "/usr/bin/lldb-dap"
 	}
 	return ""
 }
@@ -502,7 +506,11 @@ type jsDebugBackend struct{}
 func (b *jsDebugBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	serverPath := FindJSDebugServer()
 	if serverPath == "" {
-		return nil, "", fmt.Errorf("js-debug not found. Install VS Code, set DAP_JS_DEBUG_PATH, or download from github.com/microsoft/vscode-js-debug/releases")
+		return nil, "", fmt.Errorf("js-debug not found.\n" +
+			"Install standalone (no VS Code needed):\n" +
+			"  VERSION=$(curl -fsSL https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest | grep '\"tag_name\"' | sed 's/.*\"v\\([^\"]*\\)\".*/\\1/')\n" +
+			"  mkdir -p ~/.dap-cli/js-debug && curl -fsSL \"https://github.com/microsoft/vscode-js-debug/releases/download/v${VERSION}/js-debug-dap-v${VERSION}.tar.gz\" | tar -xz -C ~/.dap-cli/js-debug\n" +
+			"Or set DAP_JS_DEBUG_PATH to an existing dapDebugServer.js, or install VS Code.")
 	}
 
 	if !strings.HasPrefix(port, ":") {

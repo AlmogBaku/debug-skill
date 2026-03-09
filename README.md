@@ -180,6 +180,61 @@ Each session has its own daemon and socket. Omit `--session` to use the default 
 
 ---
 
+## Troubleshooting & Known Limitations
+
+### Node.js / TypeScript — js-debug not found
+
+`dap` does not bundle `js-debug`. Install it standalone (no VS Code needed):
+
+```bash
+VERSION=$(curl -fsSL https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+mkdir -p ~/.dap-cli/js-debug
+curl -fsSL "https://github.com/microsoft/vscode-js-debug/releases/download/v${VERSION}/js-debug-dap-v${VERSION}.tar.gz" \
+  | tar -xz -C ~/.dap-cli/js-debug
+```
+
+Or point `DAP_JS_DEBUG_PATH` at an existing `dapDebugServer.js` (e.g. from a VS Code extension).
+
+### C/C++/Rust on macOS — lldb-dap too old
+
+The Xcode Command Line Tools ship `lldb-dap` v17, which lacks the `--connection` flag `dap` requires.
+Install a newer version via Homebrew — `dap` will prefer it automatically:
+
+```bash
+brew install llvm
+```
+
+### Go on macOS — developer mode required
+
+Delve needs ptrace access, gated behind macOS developer mode:
+
+```bash
+sudo DevToolsSecurity -enable
+```
+
+### Attach mode — breakpoints silently not hit
+
+When using `--attach`, breakpoints must use **absolute paths**. Relative paths silently fail to match:
+
+```bash
+# Wrong:
+dap debug --attach localhost:5679 --backend debugpy --break mymodule.py:42
+
+# Correct:
+dap debug --attach localhost:5679 --backend debugpy --break /absolute/path/to/mymodule.py:42
+```
+
+### Multiprocessing / subprocess workers
+
+`dap` attaches to the main process only. Breakpoints inside spawned worker processes will never be hit.
+Workaround: start each worker with `debugpy --listen <port>` and attach a separate named `dap` session per worker.
+
+### Conditional breakpoints
+
+Not supported — `--break` only takes `file:line`. Workaround: add a temporary `if <cond>: pass` in source and break on that line.
+
+---
+
 ## Contributing
 
 PRs and issues welcome. See `claudedocs/` for architecture details and `CLAUDE.md` for code conventions.

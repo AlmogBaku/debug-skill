@@ -160,6 +160,52 @@ Exception: TypeError, location unknown
 Root cause: None passed where list expected.
 ```
 
+## Known Limitations
+
+**Attach mode requires absolute paths for breakpoints.**
+Relative paths silently fail to match when attaching to an already-running process.
+Always use absolute paths:
+```bash
+# Wrong — breakpoint will not be hit:
+dap debug --attach localhost:5679 --backend debugpy --break mymodule.py:42
+
+# Correct:
+dap debug --attach localhost:5679 --backend debugpy --break /abs/path/to/mymodule.py:42
+```
+
+**Conditional breakpoints are not supported.**
+`--break` only accepts `file:line`. Workaround: insert a temporary `if <condition>: pass`
+in the source and set the breakpoint on that line.
+
+**Multiprocessing / subprocess workers cannot be debugged directly.**
+`dap` attaches to the main process only. Breakpoints inside `multiprocessing.Pool` workers,
+`subprocess` children, or similar spawned processes will never be hit — the session will hang.
+Workaround: start each worker with `debugpy --listen <port>` and attach a separate `dap` session
+to each one.
+
+**Go on macOS requires developer mode.**
+`dlv` needs ptrace access, which is gated behind macOS developer mode:
+```bash
+sudo DevToolsSecurity -enable
+```
+
+**Node.js / TypeScript requires js-debug (not bundled).**
+Install it standalone (no VS Code needed):
+```bash
+VERSION=$(curl -fsSL https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+mkdir -p ~/.dap-cli/js-debug
+curl -fsSL "https://github.com/microsoft/vscode-js-debug/releases/download/v${VERSION}/js-debug-dap-v${VERSION}.tar.gz" \
+  | tar -xz -C ~/.dap-cli/js-debug
+```
+
+**C/C++/Rust on macOS requires lldb-dap v18+ (Homebrew llvm).**
+The Xcode Command Line Tools ship lldb-dap v17, which lacks the `--connection` flag `dap` needs.
+Install a newer version:
+```bash
+brew install llvm
+```
+`dap` automatically prefers the Homebrew version when both are present.
+
 ## Cleanup
 
 ```bash
