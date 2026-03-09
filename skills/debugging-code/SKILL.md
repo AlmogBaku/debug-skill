@@ -9,35 +9,12 @@ Use when a program crashes, produces wrong output, or you need to understand exa
 how execution reached a particular state — and running it again with more print statements
 won't give you the answer fast enough.
 
-You can pause a running program at any point, read live variable values and the call stack
-at that exact moment, step forward line by line or jump to the next breakpoint, and
-evaluate arbitrary expressions against the live process — all without restarting.
+**Prerequisite:** `dap` must be installed. If it's missing or a backend fails, run the `dap-setup` skill first.
 
 **Think like a developer sitting at a debugger.** Each pause is an observation. Each
 observation either confirms your current theory about the bug or disproves it and points
 somewhere new. You're not guessing — you're surgically stopping execution where the
 truth lives and reading it directly.
-
-## Setup
-
-This skill uses `dap`, a CLI tool that wraps the Debug Adapter Protocol (DAP) and exposes it
-as simple shell commands. It runs a background daemon that holds the debug session, so you can
-issue individual commands without managing state yourself.
-
-If `dap` isn't installed, install it NOW:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/AlmogBaku/debug-skill/master/install.sh)
-```
-
-You MUST INSTALL `dap` before using this skill! its recommended to ask/notify the user before proceeding to install it.
-This tool is fully open-source and available on [GitHub](https://github.com/AlmogBaku/debug-skill), it follows best
-practices, is actively maintained, and secured. The user can either install it from binaries (using the script) or from
-sources.
-
-Supports: Python · Go · Node.js/TypeScript · Rust · C/C++
-
-For all commands and flags: `dap --help` or `dap <cmd> --help`.
 
 ## Starting a Session
 
@@ -49,7 +26,7 @@ Choose your starting strategy based on what you know:
 - **Multi-file app** — breakpoints across modules: `--break src/api/routes.py:55 --break src/models/user.py:30`
 - **No hypothesis, small program** — walk from entry: `dap debug script.py --stop-on-entry` (avoid for large projects — startup code is noisy; bisect with breakpoints instead)
 - **Exception, location unknown** — `dap debug script.py --break-on-exception raised` (Python) / `all` (Go/JS)
-- **Remote process** — `dap debug --attach host:port --backend <name>`
+- **Remote process / build system** — `dap debug --attach host:port --backend <name>` (**use absolute paths for `--break`**)
 
 **Session isolation:** `--session <name>` keeps concurrent agents from interfering.
 `$CLAUDE_SESSION_ID` is injected by startup hooks; use a short descriptive name as fallback (e.g. `--session myapp`).
@@ -159,52 +136,6 @@ Exception: TypeError, location unknown
   Stopped at compute():41, items=None
 Root cause: None passed where list expected.
 ```
-
-## Known Limitations
-
-**Attach mode requires absolute paths for breakpoints.**
-Relative paths silently fail to match when attaching to an already-running process.
-Always use absolute paths:
-```bash
-# Wrong — breakpoint will not be hit:
-dap debug --attach localhost:5679 --backend debugpy --break mymodule.py:42
-
-# Correct:
-dap debug --attach localhost:5679 --backend debugpy --break /abs/path/to/mymodule.py:42
-```
-
-**Conditional breakpoints are not supported.**
-`--break` only accepts `file:line`. Workaround: insert a temporary `if <condition>: pass`
-in the source and set the breakpoint on that line.
-
-**Multiprocessing / subprocess workers cannot be debugged directly.**
-`dap` attaches to the main process only. Breakpoints inside `multiprocessing.Pool` workers,
-`subprocess` children, or similar spawned processes will never be hit — the session will hang.
-Workaround: start each worker with `debugpy --listen <port>` and attach a separate `dap` session
-to each one.
-
-**Go on macOS requires developer mode.**
-`dlv` needs ptrace access, which is gated behind macOS developer mode:
-```bash
-sudo DevToolsSecurity -enable
-```
-
-**Node.js / TypeScript requires js-debug (not bundled).**
-Install it standalone (no VS Code needed):
-```bash
-VERSION=$(curl -fsSL https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
-mkdir -p ~/.dap-cli/js-debug
-curl -fsSL "https://github.com/microsoft/vscode-js-debug/releases/download/v${VERSION}/js-debug-dap-v${VERSION}.tar.gz" \
-  | tar -xz -C ~/.dap-cli/js-debug
-```
-
-**C/C++/Rust on macOS requires lldb-dap v18+ (Homebrew llvm).**
-The Xcode Command Line Tools ship lldb-dap v17, which lacks the `--connection` flag `dap` needs.
-Install a newer version:
-```bash
-brew install llvm
-```
-`dap` automatically prefers the Homebrew version when both are present.
 
 ## Cleanup
 
