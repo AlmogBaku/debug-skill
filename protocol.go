@@ -87,7 +87,11 @@ type StepArgs struct {
 }
 
 // ContinueArgs are arguments for the "continue" command.
-type ContinueArgs struct{}
+type ContinueArgs struct {
+	Breaks           []string `json:"breaks,omitempty"`            // "file:line" breakpoints to add (additive)
+	RemoveBreaks     []string `json:"remove_breaks,omitempty"`     // "file:line" breakpoints to remove
+	ExceptionFilters []string `json:"exception_filters,omitempty"` // backend-specific filter IDs (replaces current)
+}
 
 // EvalArgs are arguments for the "eval" command.
 type EvalArgs struct {

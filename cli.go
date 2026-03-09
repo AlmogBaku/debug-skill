@@ -257,17 +257,37 @@ Modes:
 }
 
 func newContinueCmd() *cobra.Command {
+	var (
+		breaks           breakpointFlag
+		removeBreaks     breakpointFlag
+		exceptionFilters []string
+	)
+
 	cmd := &cobra.Command{
 		Use:   "continue",
 		Short: "Resume execution until next breakpoint or exit",
 		Long: `Resume execution until the next breakpoint or program exit.
 Blocks until stopped, then returns auto-context.
-If the program exits, prints "Program terminated" and the exit code.`,
+If the program exits, prints "Program terminated" and the exit code.
+
+Optionally add or remove breakpoints before continuing:
+  --break adds breakpoints (additive, merged with existing)
+  --remove-break removes specific breakpoints
+  --break-on-exception replaces exception breakpoint filters`,
 		Example: `  dap continue
-  dap continue --session worker   # resume in a named session
-  dap continue --json             # machine-readable output`,
+  dap continue --break app.py:42          # add a breakpoint and continue
+  dap continue --remove-break app.py:10   # remove a breakpoint and continue
+  dap continue --break-on-exception raised # set exception breakpoints and continue
+  dap continue --session worker            # resume in a named session
+  dap continue --json                      # machine-readable output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "continue"})
+			contArgs := ContinueArgs{
+				Breaks:           []string(breaks),
+				RemoveBreaks:     []string(removeBreaks),
+				ExceptionFilters: exceptionFilters,
+			}
+			rawArgs, _ := json.Marshal(contArgs)
+			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "continue", Args: rawArgs})
 			if err != nil {
 				return noDaemonError(err)
 			}
@@ -278,6 +298,11 @@ If the program exits, prints "Program terminated" and the exit code.`,
 			return nil
 		},
 	}
+	cmd.Flags().Var(&breaks, "break", "Add a breakpoint before continuing (repeatable: --break a.py:10)")
+	cmd.Flags().Var(&removeBreaks, "remove-break", "Remove a breakpoint before continuing (repeatable: --remove-break a.py:10)")
+	cmd.Flags().StringArrayVar(&exceptionFilters, "break-on-exception", nil,
+		"Set exception breakpoints before continuing (repeatable, replaces current).\n"+
+			"Filter IDs are backend-specific (see 'dap debug --help').")
 	return cmd
 }
 

@@ -507,9 +507,29 @@ func (d *Daemon) handleStep(rawArgs json.RawMessage) *Response {
 	return d.awaitStopResult()
 }
 
-func (d *Daemon) handleContinue(_ json.RawMessage) *Response {
+func (d *Daemon) handleContinue(rawArgs json.RawMessage) *Response {
 	if d.client == nil {
 		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	}
+
+	var args ContinueArgs
+	if rawArgs != nil {
+		_ = json.Unmarshal(rawArgs, &args)
+	}
+
+	// Update breakpoints if requested
+	if len(args.Breaks) > 0 || len(args.RemoveBreaks) > 0 {
+		if err := d.updateBreakpoints(args.Breaks, args.RemoveBreaks); err != nil {
+			return &Response{Status: "error", Error: fmt.Sprintf("set breakpoints: %v", err)}
+		}
+	}
+
+	// Update exception filters if requested (replaces all)
+	if args.ExceptionFilters != nil {
+		d.sessionExceptionFilters = args.ExceptionFilters
+		if err := d.client.SetExceptionBreakpointsRequest(args.ExceptionFilters); err != nil {
+			return &Response{Status: "error", Error: fmt.Sprintf("set exception breakpoints: %v", err)}
+		}
 	}
 
 	threadID := resolveThreadID(d.threadID)
@@ -758,6 +778,87 @@ func (d *Daemon) awaitStopResult() *Response {
 }
 
 // --- Helpers ---
+
+// updateBreakpoints merges new breakpoints with existing session breakpoints,
+// removes specified breakpoints, and sends SetBreakpointsRequest per file.
+func (d *Daemon) updateBreakpoints(add, remove []string) error {
+	// Build set of breakpoints to remove for fast lookup
+	removeSet := make(map[string]bool, len(remove))
+	for _, b := range remove {
+		// Normalize: resolve to absolute path
+		parts := strings.SplitN(b, ":", 2)
+		if len(parts) == 2 {
+			file := parts[0]
+			if abs, err := filepath.Abs(file); err == nil {
+				file = abs
+			}
+			removeSet[file+":"+parts[1]] = true
+		}
+	}
+
+	// Start with existing breakpoints, filter out removals
+	merged := make(map[string]bool)
+	for _, b := range d.sessionBreaks {
+		parts := strings.SplitN(b, ":", 2)
+		if len(parts) == 2 {
+			file := parts[0]
+			if abs, err := filepath.Abs(file); err == nil {
+				file = abs
+			}
+			key := file + ":" + parts[1]
+			if !removeSet[key] {
+				merged[key] = true
+			}
+		}
+	}
+
+	// Add new breakpoints
+	for _, b := range add {
+		parts := strings.SplitN(b, ":", 2)
+		if len(parts) == 2 {
+			file := parts[0]
+			if abs, err := filepath.Abs(file); err == nil {
+				file = abs
+			}
+			merged[file+":"+parts[1]] = true
+		}
+	}
+
+	// Convert back to slice
+	var updated []string
+	for b := range merged {
+		updated = append(updated, b)
+	}
+	d.sessionBreaks = updated
+
+	// Collect all files that were affected (need to re-send breakpoints for each)
+	affectedFiles := make(map[string]bool)
+	allBreaks := groupBreakpoints(updated)
+	for file := range allBreaks {
+		affectedFiles[file] = true
+	}
+	// Also include files from removed breakpoints (may now have zero breakpoints)
+	for _, b := range remove {
+		parts := strings.SplitN(b, ":", 2)
+		if len(parts) == 2 {
+			file := parts[0]
+			if abs, err := filepath.Abs(file); err == nil {
+				file = abs
+			}
+			affectedFiles[file] = true
+		}
+	}
+
+	// Send SetBreakpointsRequest for each affected file
+	for file := range affectedFiles {
+		lines := allBreaks[file] // may be nil/empty if all were removed
+		if err := d.client.SetBreakpointsRequest(file, lines); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
 
 // groupBreakpoints parses "file:line" strings and groups by file.
 func groupBreakpoints(breaks []string) map[string][]int {

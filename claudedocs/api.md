@@ -52,6 +52,17 @@ All execution commands block until the program stops and return auto-context.
 
 Resume execution until next breakpoint or program exit.
 
+**Flags:**
+- `--break <file:line>` — Add a breakpoint before continuing (repeatable, additive with existing breakpoints)
+- `--remove-break <file:line>` — Remove a breakpoint before continuing (repeatable)
+- `--break-on-exception <filter>` — Set exception breakpoints before continuing (repeatable, replaces current filters)
+
+```bash
+dap continue --break app.py:42          # add a breakpoint and continue
+dap continue --remove-break app.py:10   # remove a breakpoint and continue
+dap continue --break-on-exception raised # set exception breakpoints and continue
+```
+
 #### `dap step [in|out|over]`
 
 Step through code. Default: `over`.

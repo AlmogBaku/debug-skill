@@ -224,6 +224,87 @@ func TestE2E_DebugPython_Scheduler(t *testing.T) {
 	}
 }
 
+// TestE2E_ContinueWithBreakpoint tests adding breakpoints mid-session via continue --break.
+func TestE2E_ContinueWithBreakpoint(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	// 1. Debug with breakpoint at line 2 (y = 2)
+	out, err := env.run("debug", scriptPath, "--break", scriptPath+":2")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop at line 2, got:\n%s", out)
+	}
+
+	// 2. Continue with a new breakpoint at line 4 (print)
+	out, err = env.run("continue", "--break", scriptPath+":4")
+	if err != nil {
+		t.Fatalf("continue --break failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop at line 4, got:\n%s", out)
+	}
+	if !strings.Contains(out, ":4") {
+		t.Errorf("expected stop at line 4, got:\n%s", out)
+	}
+
+	// 3. Continue to end — the line 2 breakpoint should still be gone since
+	// the program is past it, and no more breakpoints ahead.
+	out, err = env.run("continue")
+	if err != nil {
+		t.Fatalf("continue failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "terminated") || !strings.Contains(out, "Program terminated") {
+		t.Errorf("expected terminated, got:\n%s", out)
+	}
+
+	// 4. Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+}
+
+// TestE2E_ContinueRemoveBreakpoint tests removing breakpoints mid-session via continue --remove-break.
+func TestE2E_ContinueRemoveBreakpoint(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	// 1. Debug with breakpoints at lines 2 and 4
+	out, err := env.run("debug", scriptPath, "--break", scriptPath+":2", "--break", scriptPath+":4")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+
+	// 2. Continue but remove the breakpoint at line 4 — should run to end
+	out, err = env.run("continue", "--remove-break", scriptPath+":4")
+	if err != nil {
+		t.Fatalf("continue --remove-break failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "terminated") || !strings.Contains(out, "Program terminated") {
+		t.Errorf("expected terminated (bp at line 4 was removed), got:\n%s", out)
+	}
+
+	// 3. Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+}
+
 // --- Go tests ---
 
 // TestE2E_DebugGo runs a full Go debug session via dlv: debug → step → eval → continue → stop.
