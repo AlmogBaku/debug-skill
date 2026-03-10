@@ -7,6 +7,8 @@
 **Primary users**: AI coding agents (Claude Code, Cursor, etc.)
 **Supported languages**: Python (debugpy), Go (dlv), Node.js/TypeScript (js-debug), Rust/C/C++ (lldb-dap) — all via DAP backends
 
+Remember to format the code with `go fmt ./...`
+
 ## Quick Reference
 
 ```bash

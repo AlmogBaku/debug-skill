@@ -160,9 +160,9 @@ func (b *debugpyBackend) RemoteAttachArgs(host string, port int) (map[string]any
 
 func (b *debugpyBackend) PIDAttachArgs(pid int) (map[string]any, error) {
 	return map[string]any{
-		"request":     "attach",
-		"processId":   pid,
-		"justMyCode":  false,
+		"request":    "attach",
+		"processId":  pid,
+		"justMyCode": false,
 	}, nil
 }
 
