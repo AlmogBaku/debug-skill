@@ -507,8 +507,10 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		return errResponsef("invalid args: %v", err)
 	}
 
-	// Store raw args for restart
+	// Store raw args and initialize session breaks for restart
 	d.lastDebugArgs = rawArgs
+	d.sessionBreaks = args.Breaks
+	d.sessionExceptionFilters = args.ExceptionFilters
 
 	// Select backend
 	var backend Backend
@@ -641,8 +643,6 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 			return errResponsef("set entry breakpoint: %v", err)
 		}
 	}
-	d.sessionBreaks = args.Breaks
-	d.sessionExceptionFilters = args.ExceptionFilters
 	breaksByFile := groupBreakpoints(args.Breaks)
 	for file, bps := range breaksByFile {
 		d.recordRequestedBreaks(file, bps)
@@ -1221,21 +1221,26 @@ func (d *Daemon) handleThread(rawArgs json.RawMessage) *Response {
 	return &Response{Status: "stopped", Data: ctx}
 }
 
+// buildRestartArgs merges current session breakpoints into the stored debug args.
+func (d *Daemon) buildRestartArgs() (json.RawMessage, error) {
+	var args DebugArgs
+	if err := json.Unmarshal(d.lastDebugArgs, &args); err != nil {
+		return nil, fmt.Errorf("restart: %w", err)
+	}
+	args.Breaks = d.sessionBreaks
+	args.ExceptionFilters = d.sessionExceptionFilters
+	return json.Marshal(args)
+}
+
 func (d *Daemon) handleRestart() *Response {
 	if d.lastDebugArgs == nil {
 		return errResponse("no previous debug session to restart — run 'dap debug' first")
 	}
 
 	// Preserve current session breakpoints (may have been modified via break add/remove).
-	var args DebugArgs
-	if err := json.Unmarshal(d.lastDebugArgs, &args); err != nil {
-		return errResponsef("restart: %v", err)
-	}
-	args.Breaks = d.sessionBreaks
-	args.ExceptionFilters = d.sessionExceptionFilters
-	updated, err := json.Marshal(args)
+	updated, err := d.buildRestartArgs()
 	if err != nil {
-		return errResponsef("restart: %v", err)
+		return errResponsef("%v", err)
 	}
 
 	d.stopSession()

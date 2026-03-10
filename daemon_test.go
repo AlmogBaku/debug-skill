@@ -303,13 +303,13 @@ func TestHandleRestartPreservesBreakpoints(t *testing.T) {
 	}
 	d.sessionExceptionFilters = []string{"uncaught"}
 
-	// handleRestart will fail (no real client), but we can check that
-	// it passes updated args by inspecting lastDebugArgs after the call.
-	_ = d.handleRestart()
-
-	// Verify the stored args were updated with session breakpoints
+	// Verify buildRestartArgs merges session breakpoints into the restart args.
+	merged, err := d.buildRestartArgs()
+	if err != nil {
+		t.Fatalf("buildRestartArgs: %v", err)
+	}
 	var updated DebugArgs
-	if err := json.Unmarshal(d.lastDebugArgs, &updated); err != nil {
+	if err := json.Unmarshal(merged, &updated); err != nil {
 		t.Fatalf("unmarshal updated args: %v", err)
 	}
 	if len(updated.Breaks) != 2 {
