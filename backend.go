@@ -3,6 +3,7 @@ package dap
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,47 @@ import (
 	"time"
 )
 
+// waitForReady scans pipe lines for readyString, extracts an address via parseAddr,
+// and kills cmd on timeout (10s) or early exit. Caller must have already started cmd.
+func waitForReady(cmd *exec.Cmd, pipe io.ReadCloser, readyString string, parseAddr func(line string) string) (string, error) {
+	scanner := bufio.NewScanner(pipe)
+	addrCh := make(chan string, 1)
+	go func() {
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, readyString) {
+				addrCh <- parseAddr(line)
+				for scanner.Scan() {
+				}
+				return
+			}
+		}
+		close(addrCh)
+	}()
+
+	select {
+	case addr, ok := <-addrCh:
+		if !ok || addr == "" {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return "", fmt.Errorf("process exited without reporting listen address")
+		}
+		return addr, nil
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return "", fmt.Errorf("process did not start within 10s")
+	}
+}
+
+// normalizePort ensures port has a ":" prefix and returns both forms.
+func normalizePort(port string) (withColon, bare string) {
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
+	return port, strings.TrimPrefix(port, ":")
+}
+
 // Backend abstracts the debugger-specific logic for spawning a DAP server
 // and building launch/attach argument maps.
 type Backend interface {
@@ -18,7 +60,6 @@ type Backend interface {
 	TransportMode() string
 	AdapterID() string
 	LaunchArgs(program string, stopOnEntry bool, args []string) (launchArgs map[string]any, cleanup func(), err error)
-	AttachArgs(pid int) (map[string]any, error)
 	RemoteAttachArgs(host string, port int) (map[string]any, error)
 	// StopOnEntryBreakpoint returns a function name to use as a breakpoint
 	// for stop-on-entry behavior. If empty, native stopOnEntry is used.
@@ -62,57 +103,26 @@ func GetBackendByName(name string) (Backend, error) {
 type debugpyBackend struct{}
 
 func (b *debugpyBackend) Spawn(port string) (*exec.Cmd, string, error) {
-	if !strings.HasPrefix(port, ":") {
-		port = ":" + port
-	}
-	actualPort := strings.TrimPrefix(port, ":")
+	_, actualPort := normalizePort(port)
 
-	// Use debugpy.adapter in debugServer mode (standalone DAP server).
-	// This is how VS Code launches debugpy - it listens for DAP connections on TCP.
 	cmd := exec.Command("python3", "-m", "debugpy.adapter", "--host", "127.0.0.1", "--port", actualPort, "--log-stderr")
 	cmd.Stdout = nil
 
-	// Capture stderr to detect readiness ("Listening for incoming Client connections")
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, "", fmt.Errorf("creating stderr pipe: %w", err)
 	}
-
 	if err := cmd.Start(); err != nil {
-		return nil, "", fmt.Errorf("starting debugpy adapter: %w", err)
+		return nil, "", fmt.Errorf("starting debugpy: %w", err)
 	}
 
-	// Wait for "Listening" message on stderr
-	scanner := bufio.NewScanner(stderrPipe)
-	ready := make(chan struct{})
-	go func() {
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "Listening") {
-				close(ready)
-				// Keep draining to avoid blocking the adapter
-				for scanner.Scan() {
-				}
-				return
-			}
-		}
-		// If scanner ends without finding "Listening", close ready anyway
-		select {
-		case <-ready:
-		default:
-			close(ready)
-		}
-	}()
-
-	select {
-	case <-ready:
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return nil, "", fmt.Errorf("debugpy adapter did not start within 10s")
+	addr, err := waitForReady(cmd, stderrPipe, "Listening", func(string) string {
+		return "127.0.0.1:" + actualPort
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("starting debugpy: %w", err)
 	}
-
-	return cmd, "127.0.0.1:" + actualPort, nil
+	return cmd, addr, nil
 }
 
 func (b *debugpyBackend) TransportMode() string         { return "tcp" }
@@ -139,13 +149,6 @@ func (b *debugpyBackend) LaunchArgs(program string, stopOnEntry bool, args []str
 	return m, nil, nil
 }
 
-func (b *debugpyBackend) AttachArgs(pid int) (map[string]any, error) {
-	return map[string]any{
-		"request":   "attach",
-		"processId": pid,
-	}, nil
-}
-
 func (b *debugpyBackend) RemoteAttachArgs(host string, port int) (map[string]any, error) {
 	return map[string]any{
 		"request":    "attach",
@@ -164,59 +167,31 @@ func (b *delveBackend) Spawn(port string) (*exec.Cmd, string, error) {
 		}
 	}
 
-	if !strings.HasPrefix(port, ":") {
-		port = ":" + port
-	}
+	port, _ = normalizePort(port)
 
 	cmd := exec.Command("dlv", "dap", "--listen", port)
 	cmd.Stderr = nil
 
-	// Capture stdout to detect "DAP server listening at:"
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, "", fmt.Errorf("creating stdout pipe: %w", err)
 	}
-
 	if err := cmd.Start(); err != nil {
 		return nil, "", fmt.Errorf("starting dlv: %w", err)
 	}
 
-	// Parse listen address from stdout
-	scanner := bufio.NewScanner(stdoutPipe)
-	addrCh := make(chan string, 1)
-	go func() {
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "DAP server listening at:") {
-				// Format: "DAP server listening at: [::]:PORT" or "DAP server listening at: 127.0.0.1:PORT"
-				idx := strings.Index(line, "DAP server listening at:")
-				addr := strings.TrimSpace(line[idx+len("DAP server listening at:"):])
-				// Normalize [::]:PORT to 127.0.0.1:PORT
-				if strings.HasPrefix(addr, "[::]") {
-					addr = "127.0.0.1" + addr[4:]
-				}
-				addrCh <- addr
-				for scanner.Scan() {
-				}
-				return
-			}
+	addr, err := waitForReady(cmd, stdoutPipe, "DAP server listening at:", func(line string) string {
+		idx := strings.Index(line, "DAP server listening at:")
+		a := strings.TrimSpace(line[idx+len("DAP server listening at:"):])
+		if strings.HasPrefix(a, "[::]") {
+			a = "127.0.0.1" + a[4:]
 		}
-		close(addrCh)
-	}()
-
-	select {
-	case addr, ok := <-addrCh:
-		if !ok || addr == "" {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return nil, "", fmt.Errorf("dlv exited without reporting listen address")
-		}
-		return cmd, addr, nil
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return nil, "", fmt.Errorf("dlv did not start within 10s")
+		return a
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("starting dlv: %w", err)
 	}
+	return cmd, addr, nil
 }
 
 func (b *delveBackend) TransportMode() string         { return "tcp" }
@@ -270,14 +245,6 @@ func (b *delveBackend) LaunchArgs(program string, stopOnEntry bool, args []strin
 		m["args"] = args
 	}
 	return m, cleanupFn, nil
-}
-
-func (b *delveBackend) AttachArgs(pid int) (map[string]any, error) {
-	return map[string]any{
-		"request":   "attach",
-		"mode":      "local",
-		"processId": pid,
-	}, nil
 }
 
 func (b *delveBackend) RemoteAttachArgs(host string, port int) (map[string]any, error) {
@@ -368,63 +335,32 @@ func (b *lldbBackend) Spawn(port string) (*exec.Cmd, string, error) {
 		return nil, "", fmt.Errorf("lldb-dap not found. Install: brew install llvm (macOS) or apt install lldb (Linux)")
 	}
 
-	if !strings.HasPrefix(port, ":") {
-		port = ":" + port
-	}
-	actualPort := strings.TrimPrefix(port, ":")
+	_, actualPort := normalizePort(port)
 
 	cmd := exec.Command(binary, "--connection", fmt.Sprintf("listen://127.0.0.1:%s", actualPort))
+	cmd.Stderr = nil
 
-	// Capture stdout to detect "Listening for: connection://..."
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, "", fmt.Errorf("creating stdout pipe: %w", err)
 	}
-	cmd.Stderr = nil
-
 	if err := cmd.Start(); err != nil {
 		return nil, "", fmt.Errorf("starting lldb-dap: %w", err)
 	}
 
-	// Parse listen address from stdout
-	scanner := bufio.NewScanner(stdoutPipe)
-	addrCh := make(chan string, 1)
-	go func() {
-		for scanner.Scan() {
-			line := scanner.Text()
-			// Format: "Listening for: connection://[127.0.0.1]:PORT"
-			if strings.Contains(line, "Listening") {
-				// Extract host:port from the connection URL
-				if idx := strings.Index(line, "connection://"); idx >= 0 {
-					raw := line[idx+len("connection://"):]
-					// Handle bracketed addresses like [127.0.0.1]:PORT
-					raw = strings.ReplaceAll(raw, "[", "")
-					raw = strings.ReplaceAll(raw, "]", "")
-					addrCh <- raw
-				} else {
-					addrCh <- "127.0.0.1:" + actualPort
-				}
-				for scanner.Scan() {
-				}
-				return
-			}
+	addr, err := waitForReady(cmd, stdoutPipe, "Listening", func(line string) string {
+		if idx := strings.Index(line, "connection://"); idx >= 0 {
+			raw := line[idx+len("connection://"):]
+			raw = strings.ReplaceAll(raw, "[", "")
+			raw = strings.ReplaceAll(raw, "]", "")
+			return raw
 		}
-		close(addrCh)
-	}()
-
-	select {
-	case addr, ok := <-addrCh:
-		if !ok || addr == "" {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return nil, "", fmt.Errorf("lldb-dap exited without reporting listen address")
-		}
-		return cmd, addr, nil
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return nil, "", fmt.Errorf("lldb-dap did not start within 10s")
+		return "127.0.0.1:" + actualPort
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("starting lldb-dap: %w", err)
 	}
+	return cmd, addr, nil
 }
 
 func (b *lldbBackend) TransportMode() string         { return "tcp" }
@@ -485,12 +421,6 @@ func (b *lldbBackend) LaunchArgs(program string, stopOnEntry bool, args []string
 	return m, cleanupFn, nil
 }
 
-func (b *lldbBackend) AttachArgs(pid int) (map[string]any, error) {
-	return map[string]any{
-		"pid": pid,
-	}, nil
-}
-
 func (b *lldbBackend) RemoteAttachArgs(host string, port int) (map[string]any, error) {
 	return nil, fmt.Errorf("lldb-dap does not support remote attach")
 }
@@ -505,72 +435,41 @@ func (b *jsDebugBackend) Spawn(port string) (*exec.Cmd, string, error) {
 		return nil, "", fmt.Errorf("js-debug not found. Install VS Code, set DAP_JS_DEBUG_PATH, or download from github.com/microsoft/vscode-js-debug/releases")
 	}
 
-	if !strings.HasPrefix(port, ":") {
-		port = ":" + port
-	}
-	actualPort := strings.TrimPrefix(port, ":")
+	_, actualPort := normalizePort(port)
 
 	cmd := exec.Command("node", serverPath, actualPort)
+	cmd.Stderr = nil
 
-	// Capture stdout to detect "Listening at HOST:PORT"
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, "", fmt.Errorf("creating stdout pipe: %w", err)
 	}
-	cmd.Stderr = nil
-
 	if err := cmd.Start(); err != nil {
 		return nil, "", fmt.Errorf("starting js-debug: %w", err)
 	}
 
-	scanner := bufio.NewScanner(stdoutPipe)
-	addrCh := make(chan string, 1)
-	go func() {
-		for scanner.Scan() {
-			line := scanner.Text()
-			// js-debug prints: "Debug server listening at HOST:PORT"
-			// e.g. "Debug server listening at ::1:12345"
-			if strings.Contains(line, "Debug server listening at") {
-				parts := strings.Fields(line)
-				addr := "127.0.0.1:" + actualPort
-				if len(parts) > 0 {
-					raw := parts[len(parts)-1]
-					// Extract port from the last colon (handles IPv6 like "::1:PORT")
-					if idx := strings.LastIndex(raw, ":"); idx >= 0 {
-						port := raw[idx+1:]
-						host := raw[:idx]
-						// Normalize: use the original host but bracket IPv6
-						if strings.Contains(host, ":") {
-							addr = "[" + host + "]:" + port
-						} else if host == "" {
-							addr = "127.0.0.1:" + port
-						} else {
-							addr = host + ":" + port
-						}
-					}
-				}
-				addrCh <- addr
-				for scanner.Scan() {
-				}
-				return
+	addr, err := waitForReady(cmd, stdoutPipe, "Debug server listening at", func(line string) string {
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			return "127.0.0.1:" + actualPort
+		}
+		raw := parts[len(parts)-1]
+		if idx := strings.LastIndex(raw, ":"); idx >= 0 {
+			p := raw[idx+1:]
+			host := raw[:idx]
+			if strings.Contains(host, ":") {
+				return "[" + host + "]:" + p
+			} else if host == "" {
+				return "127.0.0.1:" + p
 			}
+			return host + ":" + p
 		}
-		close(addrCh)
-	}()
-
-	select {
-	case addr, ok := <-addrCh:
-		if !ok || addr == "" {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			return nil, "", fmt.Errorf("js-debug exited without reporting listen address")
-		}
-		return cmd, addr, nil
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return nil, "", fmt.Errorf("js-debug did not start within 10s")
+		return "127.0.0.1:" + actualPort
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("starting js-debug: %w", err)
 	}
+	return cmd, addr, nil
 }
 
 func (b *jsDebugBackend) TransportMode() string         { return "tcp" }
@@ -594,14 +493,6 @@ func (b *jsDebugBackend) LaunchArgs(program string, stopOnEntry bool, args []str
 		m["args"] = args
 	}
 	return m, nil, nil
-}
-
-func (b *jsDebugBackend) AttachArgs(pid int) (map[string]any, error) {
-	return map[string]any{
-		"type":      "pwa-node",
-		"request":   "attach",
-		"processId": pid,
-	}, nil
 }
 
 func (b *jsDebugBackend) RemoteAttachArgs(host string, port int) (map[string]any, error) {

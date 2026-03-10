@@ -102,7 +102,7 @@ type EvalResult struct {
 type BreakpointUpdates struct {
 	Breaks           []Breakpoint `json:"breaks,omitempty"`            // breakpoints to add (additive)
 	RemoveBreaks     []Breakpoint `json:"remove_breaks,omitempty"`     // breakpoints to remove
-	ExceptionFilters []string     `json:"exception_filters,omitempty"` // backend-specific filter IDs (replaces current)
+	ExceptionFilters []string     `json:"exception_filters,omitempty"` // backend-specific filter IDs (additive, merged with existing)
 }
 
 // DebugArgs are arguments for the "debug" command.

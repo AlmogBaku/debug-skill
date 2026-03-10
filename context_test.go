@@ -43,4 +43,12 @@ func TestTruncateString(t *testing.T) {
 	if truncateString(long, 5) != "abcde..." {
 		t.Errorf("truncated = %q, want %q", truncateString(long, 5), "abcde...")
 	}
+
+	// Multi-byte: emoji runes should not be split
+	emoji := "hello🌍🌎🌏world"
+	got := truncateString(emoji, 8) // "hello🌍🌎🌏" (8 runes)
+	want := "hello🌍🌎🌏..."
+	if got != want {
+		t.Errorf("multi-byte truncated = %q, want %q", got, want)
+	}
 }

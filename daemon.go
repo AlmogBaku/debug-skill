@@ -20,12 +20,15 @@ import (
 	godap "github.com/google/go-dap"
 )
 
-// DefaultSocketDir is the directory for the daemon socket.
-var DefaultSocketDir = filepath.Join(os.Getenv("HOME"), ".dap-cli")
+// defaultSocketDir returns the directory for the daemon socket.
+func defaultSocketDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".dap-cli")
+}
 
 // SessionSocketPath returns the socket path for a named session.
 func SessionSocketPath(name string) string {
-	return filepath.Join(DefaultSocketDir, name+".sock")
+	return filepath.Join(defaultSocketDir(), name+".sock")
 }
 
 // DefaultSocketPath returns the default socket path (session "default").
@@ -35,8 +38,10 @@ func DefaultSocketPath() string {
 
 // Daemon holds the stateful debug session.
 type Daemon struct {
-	client     *DAPClient
-	backend    Backend
+	clientMu sync.Mutex // guards d.client pointer; never held during I/O
+	client   *DAPClient
+	backend  Backend
+
 	adapterCmd *exec.Cmd
 
 	// Async event dispatch
@@ -66,6 +71,8 @@ type Daemon struct {
 	adapterAddr string
 	// sessionBreaks and sessionExceptionFilters are only accessed from handler methods
 	// (single-threaded dispatch via Serve) — no mutex needed.
+	// d.client is guarded by clientMu for pointer swaps (readLoop↔handlers); once
+	// requireSession passes, handlers use d.client directly (sequential dispatch).
 	sessionBreaks           []Breakpoint // stored breakpoints for child session re-init
 	sessionExceptionFilters []string     // stored exception filter IDs for child session re-init
 
@@ -79,6 +86,35 @@ type Daemon struct {
 
 const maxOutputLines = 200
 const defaultIdleTimeout = 10 * time.Minute
+
+const errNoSession = "no active debug session (program may have terminated) — run 'dap debug' to start a new session"
+
+func errResponse(msg string) *Response {
+	return &Response{Status: "error", Error: msg}
+}
+
+func errResponsef(format string, args ...any) *Response {
+	return &Response{Status: "error", Error: fmt.Sprintf(format, args...)}
+}
+
+func (d *Daemon) requireSession() *Response {
+	if d.getClient() == nil {
+		return errResponse(errNoSession)
+	}
+	return nil
+}
+
+func (d *Daemon) getClient() *DAPClient {
+	d.clientMu.Lock()
+	defer d.clientMu.Unlock()
+	return d.client
+}
+
+func (d *Daemon) setClient(c *DAPClient) {
+	d.clientMu.Lock()
+	d.client = c
+	d.clientMu.Unlock()
+}
 
 func idleTimeout() time.Duration {
 	if v := os.Getenv("DAP_IDLE_TIMEOUT"); v != "" {
@@ -410,14 +446,14 @@ func (d *Daemon) dispatchCommand(req Request) *Response {
 	case "ping":
 		return &Response{Status: "ok"}
 	default:
-		return &Response{Status: "error", Error: fmt.Sprintf("unknown command: %s", req.Command)}
+		return errResponsef("unknown command: %s", req.Command)
 	}
 }
 
 func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 	var args DebugArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("invalid args: %v", err)}
+		return errResponsef("invalid args: %v", err)
 	}
 
 	// Select backend
@@ -426,16 +462,17 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		var err error
 		backend, err = GetBackendByName(args.Backend)
 		if err != nil {
-			return &Response{Status: "error", Error: err.Error()}
+			return errResponse(err.Error())
 		}
 	} else if args.Script != "" {
 		backend = DetectBackend(args.Script)
 	} else if args.Attach != "" {
-		return &Response{Status: "error", Error: "backend required for remote attach (e.g. --backend debugpy)"}
+		return errResponse("backend required for remote attach (e.g. --backend debugpy)")
 	} else {
-		return &Response{Status: "error", Error: "script path or --attach required"}
+		return errResponse("script path or --attach required")
 	}
 	d.backend = backend
+	d.stopSession() // clean up any previous session
 
 	isRemote := args.Attach != ""
 
@@ -443,49 +480,49 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		// Connect directly to the remote DAP server
 		client, err := newDAPClient(args.Attach)
 		if err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("connecting to %s: %v", args.Attach, err)}
+			return errResponsef("connecting to %s: %v", args.Attach, err)
 		}
-		d.client = client
+		d.setClient(client)
 		d.expectCh = make(chan godap.Message, 64)
 		go d.readLoop()
 
 		if err := d.initializeDAP(backend); err != nil {
-			return &Response{Status: "error", Error: err.Error()}
+			return errResponse(err.Error())
 		}
 
 		host, portStr, splitErr := net.SplitHostPort(args.Attach)
 		if splitErr != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("invalid attach address %q: %v", args.Attach, splitErr)}
+			return errResponsef("invalid attach address %q: %v", args.Attach, splitErr)
 		}
 		remotePort, _ := strconv.Atoi(portStr)
 		attachArgs, err := backend.RemoteAttachArgs(host, remotePort)
 		if err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("preparing attach: %v", err)}
+			return errResponsef("preparing attach: %v", err)
 		}
 		if err := d.client.AttachRequestWithArgs(attachArgs); err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("attach: %v", err)}
+			return errResponsef("attach: %v", err)
 		}
 	} else {
 		// Local launch
 		if err := d.startAdapter(backend); err != nil {
-			return &Response{Status: "error", Error: err.Error()}
+			return errResponse(err.Error())
 		}
 		if err := d.initializeDAP(backend); err != nil {
-			return &Response{Status: "error", Error: err.Error()}
+			return errResponse(err.Error())
 		}
 
 		launchArgs, cleanupFn, err := backend.LaunchArgs(args.Script, args.StopOnEntry || len(args.Breaks) == 0, args.ProgramArgs)
 		if err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("preparing launch: %v", err)}
+			return errResponsef("preparing launch: %v", err)
 		}
 		d.cleanupFn = cleanupFn
 		if err := d.client.LaunchRequestWithArgs(launchArgs); err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("launch: %v", err)}
+			return errResponsef("launch: %v", err)
 		}
 	}
 
@@ -496,7 +533,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		msg, err := d.readExpected()
 		if err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("waiting for initialized: %v", err)}
+			return errResponsef("waiting for initialized: %v", err)
 		}
 		switch m := msg.(type) {
 		case *godap.ErrorResponse:
@@ -505,14 +542,14 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 				errMsg = m.Body.Error.Format
 			}
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("request failed: %s", errMsg)}
+			return errResponsef("request failed: %s", errMsg)
 		case *godap.ExitedEvent, *godap.TerminatedEvent:
 			d.stopSession()
-			return &Response{Status: "error", Error: "debug adapter exited during initialization — check that the program path is valid and the debugger is installed"}
+			return errResponse("debug adapter exited during initialization — check that the program path is valid and the debugger is installed")
 		case godap.ResponseMessage:
 			if !m.GetResponse().Success {
 				d.stopSession()
-				return &Response{Status: "error", Error: fmt.Sprintf("request failed: %s", m.GetResponse().Message)}
+				return errResponsef("request failed: %s", m.GetResponse().Message)
 			}
 		case *godap.InitializedEvent:
 			initializedReceived = true
@@ -526,7 +563,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 	if stopOnEntry && entryBP != "" {
 		if err := d.client.SetFunctionBreakpointsRequest([]string{entryBP}); err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("set entry breakpoint: %v", err)}
+			return errResponsef("set entry breakpoint: %v", err)
 		}
 	}
 	d.sessionBreaks = args.Breaks
@@ -536,7 +573,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		d.recordRequestedBreaks(file, bps)
 		if err := d.client.SetBreakpointsRequest(file, bps); err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: fmt.Sprintf("set breakpoints: %v", err)}
+			return errResponsef("set breakpoints: %v", err)
 		}
 	}
 	exceptionFilters := args.ExceptionFilters
@@ -545,11 +582,11 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 	}
 	if err := d.client.SetExceptionBreakpointsRequest(exceptionFilters); err != nil {
 		d.stopSession()
-		return &Response{Status: "error", Error: fmt.Sprintf("set exception breakpoints: %v", err)}
+		return errResponsef("set exception breakpoints: %v", err)
 	}
 	if err := d.client.ConfigurationDoneRequest(); err != nil {
 		d.stopSession()
-		return &Response{Status: "error", Error: fmt.Sprintf("finalizing debug setup: %v", err)}
+		return errResponsef("finalizing debug setup: %v", err)
 	}
 
 	// Wait for first stop. If we get an "entry" stop and have breakpoints, continue past it.
@@ -557,7 +594,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		ctx, err := d.waitForStopped()
 		if err != nil {
 			d.stopSession()
-			return &Response{Status: "error", Error: err.Error()}
+			return errResponse(err.Error())
 		}
 		if ctx.Location == nil {
 			// terminated
@@ -570,7 +607,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 			d.mu.Unlock()
 			if err := d.client.ContinueRequest(d.threadID); err != nil {
 				d.stopSession()
-				return &Response{Status: "error", Error: fmt.Sprintf("continue past entry: %v", err)}
+				return errResponsef("continue past entry: %v", err)
 			}
 			continue
 		}
@@ -585,29 +622,36 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 func (d *Daemon) applyBreakpointUpdates(bu BreakpointUpdates) *Response {
 	if len(bu.Breaks) > 0 || len(bu.RemoveBreaks) > 0 {
 		if err := d.updateBreakpoints(bu.Breaks, bu.RemoveBreaks); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("set breakpoints: %v", err)}
+			return errResponsef("set breakpoints: %v", err)
 		}
 	}
-	// ExceptionFilters on inline commands (--break-on-exception) replaces all current filters,
-	// unlike handleBreakAdd which merges additively. This matches the CLI flag semantics
-	// documented in the API: "replaces current filters".
-	if bu.ExceptionFilters != nil {
-		d.sessionExceptionFilters = bu.ExceptionFilters
-		if err := d.client.SetExceptionBreakpointsRequest(bu.ExceptionFilters); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("set exception breakpoints: %v", err)}
+	if len(bu.ExceptionFilters) > 0 {
+		existing := make(map[string]bool)
+		for _, f := range d.sessionExceptionFilters {
+			existing[f] = true
+		}
+		for _, f := range bu.ExceptionFilters {
+			if !existing[f] {
+				d.sessionExceptionFilters = append(d.sessionExceptionFilters, f)
+			}
+		}
+		if err := d.client.SetExceptionBreakpointsRequest(d.sessionExceptionFilters); err != nil {
+			return errResponsef("set exception breakpoints: %v", err)
 		}
 	}
 	return nil
 }
 
 func (d *Daemon) handleStep(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args StepArgs
 	if rawArgs != nil {
-		_ = json.Unmarshal(rawArgs, &args)
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return errResponsef("invalid args: %v", err)
+		}
 	}
 	if args.Mode == "" {
 		args.Mode = "over"
@@ -622,31 +666,33 @@ func (d *Daemon) handleStep(rawArgs json.RawMessage) *Response {
 	switch args.Mode {
 	case "over":
 		if err := d.client.NextRequest(threadID); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("step over: %v", err)}
+			return errResponsef("step over: %v", err)
 		}
 	case "in":
 		if err := d.client.StepInRequest(threadID); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("step in: %v", err)}
+			return errResponsef("step in: %v", err)
 		}
 	case "out":
 		if err := d.client.StepOutRequest(threadID); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("step out: %v", err)}
+			return errResponsef("step out: %v", err)
 		}
 	default:
-		return &Response{Status: "error", Error: fmt.Sprintf("invalid step mode %q — use: in, out, over", args.Mode)}
+		return errResponsef("invalid step mode %q — use: in, out, over", args.Mode)
 	}
 
 	return d.awaitStopResult()
 }
 
 func (d *Daemon) handleContinue(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args ContinueArgs
 	if rawArgs != nil {
-		_ = json.Unmarshal(rawArgs, &args)
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return errResponsef("invalid args: %v", err)
+		}
 	}
 
 	if errResp := d.applyBreakpointUpdates(args.BreakpointUpdates); errResp != nil {
@@ -656,20 +702,22 @@ func (d *Daemon) handleContinue(rawArgs json.RawMessage) *Response {
 	threadID := resolveThreadID(d.threadID)
 
 	if err := d.client.ContinueRequest(threadID); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("continue: %v", err)}
+		return errResponsef("continue: %v", err)
 	}
 
 	return d.awaitStopResult()
 }
 
 func (d *Daemon) handleContext(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args ContextArgs
 	if rawArgs != nil {
-		_ = json.Unmarshal(rawArgs, &args)
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return errResponsef("invalid args: %v", err)
+		}
 	}
 
 	if errResp := d.applyBreakpointUpdates(args.BreakpointUpdates); errResp != nil {
@@ -680,19 +728,19 @@ func (d *Daemon) handleContext(rawArgs json.RawMessage) *Response {
 
 	ctx, err := getFullContext(d, threadID, args.Frame)
 	if err != nil {
-		return &Response{Status: "error", Error: err.Error()}
+		return errResponse(err.Error())
 	}
 	return &Response{Status: "stopped", Data: ctx}
 }
 
 func (d *Daemon) handleEval(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args EvalArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("invalid args: %v", err)}
+		return errResponsef("invalid args: %v", err)
 	}
 
 	if errResp := d.applyBreakpointUpdates(args.BreakpointUpdates); errResp != nil {
@@ -702,24 +750,24 @@ func (d *Daemon) handleEval(rawArgs json.RawMessage) *Response {
 	frameID := d.frameID // default: current (innermost) frame
 	if args.Frame > 0 {
 		if args.Frame >= len(d.frameIDs) {
-			return &Response{Status: "error", Error: fmt.Sprintf("frame %d out of range (stack has %d frames)", args.Frame, len(d.frameIDs))}
+			return errResponsef("frame %d out of range (stack has %d frames)", args.Frame, len(d.frameIDs))
 		}
 		frameID = d.frameIDs[args.Frame]
 	}
 
 	if err := d.client.EvaluateRequest(args.Expression, frameID, "repl"); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("evaluate: %v", err)}
+		return errResponsef("evaluate: %v", err)
 	}
 
 	for {
 		msg, err := d.readExpected()
 		if err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("reading eval response: %v", err)}
+			return errResponsef("reading eval response: %v", err)
 		}
 		switch resp := msg.(type) {
 		case *godap.EvaluateResponse:
 			if !resp.Success {
-				return &Response{Status: "error", Error: fmt.Sprintf("eval failed: %s", resp.Message)}
+				return errResponsef("eval failed: %s", resp.Message)
 			}
 			return &Response{
 				Status: "ok",
@@ -731,10 +779,10 @@ func (d *Daemon) handleEval(rawArgs json.RawMessage) *Response {
 				},
 			}
 		case *godap.ExitedEvent, *godap.TerminatedEvent:
-			return &Response{Status: "error", Error: "program terminated during evaluation"}
+			return errResponse("program terminated during evaluation")
 		case godap.ResponseMessage:
 			if !resp.GetResponse().Success {
-				return &Response{Status: "error", Error: fmt.Sprintf("eval failed: %s", resp.GetResponse().Message)}
+				return errResponsef("eval failed: %s", resp.GetResponse().Message)
 			}
 			return &Response{Status: "ok", Data: &ContextResult{EvalResult: &EvalResult{Value: "(no result)"}}}
 		}
@@ -742,10 +790,12 @@ func (d *Daemon) handleEval(rawArgs json.RawMessage) *Response {
 }
 
 func (d *Daemon) handleOutput(rawArgs json.RawMessage) *Response {
-	if d.client != nil {
+	if d.getClient() != nil {
 		var args OutputArgs
 		if rawArgs != nil {
-			_ = json.Unmarshal(rawArgs, &args)
+			if err := json.Unmarshal(rawArgs, &args); err != nil {
+				return errResponsef("invalid args: %v", err)
+			}
 		}
 		if errResp := d.applyBreakpointUpdates(args.BreakpointUpdates); errResp != nil {
 			return errResp
@@ -759,8 +809,8 @@ func (d *Daemon) handleOutput(rawArgs json.RawMessage) *Response {
 }
 
 func (d *Daemon) handleBreakList() *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 	breaks := make([]Breakpoint, len(d.sessionBreaks))
 	copy(breaks, d.sessionBreaks)
@@ -774,25 +824,33 @@ func (d *Daemon) handleBreakList() *Response {
 }
 
 func (d *Daemon) handleBreakAdd(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args BreakAddArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("invalid args: %v", err)}
+		return errResponsef("invalid args: %v", err)
 	}
 
 	if len(args.Breaks) > 0 {
 		if err := d.updateBreakpoints(args.Breaks, nil); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("set breakpoints: %v", err)}
+			return errResponsef("set breakpoints: %v", err)
 		}
 	}
 
 	if len(args.ExceptionFilters) > 0 {
-		d.sessionExceptionFilters = args.ExceptionFilters
-		if err := d.client.SetExceptionBreakpointsRequest(args.ExceptionFilters); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("set exception breakpoints: %v", err)}
+		existing := make(map[string]bool)
+		for _, f := range d.sessionExceptionFilters {
+			existing[f] = true
+		}
+		for _, f := range args.ExceptionFilters {
+			if !existing[f] {
+				d.sessionExceptionFilters = append(d.sessionExceptionFilters, f)
+			}
+		}
+		if err := d.client.SetExceptionBreakpointsRequest(d.sessionExceptionFilters); err != nil {
+			return errResponsef("set exception breakpoints: %v", err)
 		}
 	}
 
@@ -800,18 +858,18 @@ func (d *Daemon) handleBreakAdd(rawArgs json.RawMessage) *Response {
 }
 
 func (d *Daemon) handleBreakRemove(rawArgs json.RawMessage) *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	var args BreakRemoveArgs
 	if err := json.Unmarshal(rawArgs, &args); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("invalid args: %v", err)}
+		return errResponsef("invalid args: %v", err)
 	}
 
 	if len(args.Breaks) > 0 {
 		if err := d.updateBreakpoints(nil, args.Breaks); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("remove breakpoints: %v", err)}
+			return errResponsef("remove breakpoints: %v", err)
 		}
 	}
 
@@ -832,7 +890,7 @@ func (d *Daemon) handleBreakRemove(rawArgs json.RawMessage) *Response {
 			filters = []string{}
 		}
 		if err := d.client.SetExceptionBreakpointsRequest(filters); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("set exception breakpoints: %v", err)}
+			return errResponsef("set exception breakpoints: %v", err)
 		}
 	}
 
@@ -840,8 +898,8 @@ func (d *Daemon) handleBreakRemove(rawArgs json.RawMessage) *Response {
 }
 
 func (d *Daemon) handleBreakClear() *Response {
-	if d.client == nil {
-		return &Response{Status: "error", Error: "no active debug session (program may have terminated) — run 'dap debug' to start a new session"}
+	if resp := d.requireSession(); resp != nil {
+		return resp
 	}
 
 	// Clear all file breakpoints by sending empty sets for each affected file
@@ -851,7 +909,7 @@ func (d *Daemon) handleBreakClear() *Response {
 	}
 	for file := range affectedFiles {
 		if err := d.client.SetBreakpointsRequest(file, nil); err != nil {
-			return &Response{Status: "error", Error: fmt.Sprintf("clear breakpoints: %v", err)}
+			return errResponsef("clear breakpoints: %v", err)
 		}
 	}
 	d.sessionBreaks = nil
@@ -859,7 +917,7 @@ func (d *Daemon) handleBreakClear() *Response {
 	// Clear exception filters
 	d.sessionExceptionFilters = nil
 	if err := d.client.SetExceptionBreakpointsRequest([]string{}); err != nil {
-		return &Response{Status: "error", Error: fmt.Sprintf("clear exception breakpoints: %v", err)}
+		return errResponsef("clear exception breakpoints: %v", err)
 	}
 
 	return &Response{Status: "ok"}
@@ -877,10 +935,13 @@ func (d *Daemon) handleStop() *Response {
 }
 
 func (d *Daemon) stopSession() {
-	if d.client != nil {
-		_ = d.client.DisconnectRequest(true)
-		d.client.Close()
-		d.client = nil
+	d.clientMu.Lock()
+	c := d.client
+	d.client = nil
+	d.clientMu.Unlock()
+	if c != nil {
+		_ = c.DisconnectRequest(true)
+		c.Close()
 	}
 	if d.adapterCmd != nil && d.adapterCmd.Process != nil {
 		_ = d.adapterCmd.Process.Kill()
@@ -918,7 +979,7 @@ func (d *Daemon) startAdapter(backend Backend) error {
 		_ = cmd.Wait()
 		return fmt.Errorf("connecting to adapter: %w", err)
 	}
-	d.client = client
+	d.setClient(client)
 	d.expectCh = make(chan godap.Message, 64)
 	go d.readLoop()
 	return nil
@@ -960,7 +1021,10 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	}
 
 	// Initialize child
-	_ = childClient.InitializeRequest(d.backend.AdapterID())
+	if err := childClient.InitializeRequest(d.backend.AdapterID()); err != nil {
+		childClient.Close()
+		return fmt.Errorf("child initialize: %w", err)
+	}
 	for {
 		cmsg, cerr := childClient.ReadMessage()
 		if cerr != nil {
@@ -973,7 +1037,9 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	}
 
 	// Launch child with config from startDebugging
-	_ = childClient.LaunchRequestWithArgs(config)
+	if err := childClient.LaunchRequestWithArgs(config); err != nil {
+		log.Printf("child launch: %v", err)
+	}
 
 	// Read until InitializedEvent (child may send it immediately)
 	for {
@@ -992,17 +1058,23 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 	breaksByFile := groupBreakpoints(d.sessionBreaks)
 	for file, bps := range breaksByFile {
 		d.recordRequestedBreaks(file, bps)
-		_ = childClient.SetBreakpointsRequest(file, bps)
+		if err := childClient.SetBreakpointsRequest(file, bps); err != nil {
+			log.Printf("child set breakpoints: %v", err)
+		}
 	}
 	childExceptionFilters := d.sessionExceptionFilters
 	if childExceptionFilters == nil {
 		childExceptionFilters = []string{}
 	}
-	_ = childClient.SetExceptionBreakpointsRequest(childExceptionFilters)
-	_ = childClient.ConfigurationDoneRequest()
+	if err := childClient.SetExceptionBreakpointsRequest(childExceptionFilters); err != nil {
+		log.Printf("child set exception breakpoints: %v", err)
+	}
+	if err := childClient.ConfigurationDoneRequest(); err != nil {
+		log.Printf("child configuration done: %v", err)
+	}
 
 	// Swap to child session — readLoop continues reading from child
-	d.client = childClient
+	d.setClient(childClient)
 	return nil
 }
 
@@ -1019,7 +1091,7 @@ func resolveThreadID(threadID int) int {
 func (d *Daemon) awaitStopResult() *Response {
 	ctx, err := d.waitForStopped()
 	if err != nil {
-		return &Response{Status: "error", Error: err.Error()}
+		return errResponse(err.Error())
 	}
 	if ctx.Location == nil {
 		return &Response{Status: "terminated", Data: ctx}
