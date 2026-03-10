@@ -31,6 +31,7 @@ jobs:
           dry_run: true
 
       - name: Update plugin.json version
+        if: steps.tag.outputs.new_version != ''
         run: |
           NEW_VERSION="${{ steps.tag.outputs.new_version }}"
           echo "Bumping to $NEW_VERSION"
@@ -38,6 +39,7 @@ jobs:
           mv tmp.json .claude-plugin/plugin.json
 
       - name: Commit and push
+        if: steps.tag.outputs.new_version != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
