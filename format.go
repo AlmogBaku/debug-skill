@@ -72,6 +72,17 @@ func FormatText(r *ContextResult) string {
 		}
 	}
 
+	// Exception info
+	if r.ExceptionInfo != nil {
+		fmt.Fprintf(&b, "\nException: %s\n", r.ExceptionInfo.ExceptionID)
+		if r.ExceptionInfo.Description != "" {
+			fmt.Fprintf(&b, "  %s\n", r.ExceptionInfo.Description)
+		}
+		if r.ExceptionInfo.Details != "" {
+			fmt.Fprintf(&b, "  %s\n", r.ExceptionInfo.Details)
+		}
+	}
+
 	// Locals
 	if len(r.Locals) > 0 {
 		b.WriteString("\nLocals:\n")

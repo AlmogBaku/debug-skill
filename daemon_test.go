@@ -264,6 +264,17 @@ func TestRequireSession(t *testing.T) {
 	}
 }
 
+func TestHandlePauseNoSession(t *testing.T) {
+	d := &Daemon{}
+	resp := d.handlePause(nil)
+	if resp.Status != "error" {
+		t.Errorf("expected error status, got %q", resp.Status)
+	}
+	if !strings.Contains(resp.Error, "no active debug session") {
+		t.Errorf("expected 'no active debug session' in error, got %q", resp.Error)
+	}
+}
+
 func TestMalformedJSONArgs(t *testing.T) {
 	d := &Daemon{}
 	// Set a fake client so requireSession passes
@@ -278,6 +289,7 @@ func TestMalformedJSONArgs(t *testing.T) {
 		{"handleStep", d.handleStep},
 		{"handleContinue", d.handleContinue},
 		{"handleContext", d.handleContext},
+		{"handlePause", d.handlePause},
 	}
 
 	for _, tt := range tests {

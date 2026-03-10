@@ -320,6 +320,24 @@ func (d *Daemon) waitForStopped() (*ContextResult, error) {
 				return nil, fmt.Errorf("getting context: %w", err)
 			}
 			ctx.Reason = m.Body.Reason
+
+			// Fetch exception info when stopped on an exception
+			if m.Body.Reason == "exception" {
+				if err := d.client.ExceptionInfoRequest(d.threadID); err == nil {
+					if emsg, eerr := d.readExpected(); eerr == nil {
+						if eresp, ok := emsg.(*godap.ExceptionInfoResponse); ok && eresp.Success {
+							ctx.ExceptionInfo = &ExceptionInfo{
+								ExceptionID: eresp.Body.ExceptionId,
+								Description: eresp.Body.Description,
+							}
+							if eresp.Body.Details != nil {
+								ctx.ExceptionInfo.Details = eresp.Body.Details.Message
+							}
+						}
+					}
+				}
+			}
+
 			return ctx, nil
 		case *godap.ExitedEvent:
 			ec := m.Body.ExitCode
@@ -441,6 +459,8 @@ func (d *Daemon) dispatchCommand(req Request) *Response {
 		return d.handleBreakRemove(req.Args)
 	case "break_clear":
 		return d.handleBreakClear()
+	case "pause":
+		return d.handlePause(req.Args)
 	case "stop":
 		return d.handleStop()
 	case "ping":
@@ -699,10 +719,54 @@ func (d *Daemon) handleContinue(rawArgs json.RawMessage) *Response {
 		return errResp
 	}
 
+	// --to: add temp breakpoint before continuing
+	if args.ContinueTo != nil {
+		if err := d.updateBreakpoints([]Breakpoint{*args.ContinueTo}, nil); err != nil {
+			return errResponsef("set temp breakpoint: %v", err)
+		}
+	}
+
 	threadID := resolveThreadID(d.threadID)
 
 	if err := d.client.ContinueRequest(threadID); err != nil {
 		return errResponsef("continue: %v", err)
+	}
+
+	resp := d.awaitStopResult()
+
+	// --to: remove temp breakpoint after stop (whether stopped or terminated)
+	if args.ContinueTo != nil {
+		if d.getClient() != nil {
+			_ = d.updateBreakpoints(nil, []Breakpoint{*args.ContinueTo})
+		} else {
+			// Session ended — just clean sessionBreaks directly
+			d.sessionBreaks = mergeBreakpoints(d.sessionBreaks, nil, []Breakpoint{*args.ContinueTo})
+		}
+	}
+
+	return resp
+}
+
+func (d *Daemon) handlePause(rawArgs json.RawMessage) *Response {
+	if resp := d.requireSession(); resp != nil {
+		return resp
+	}
+
+	var args PauseArgs
+	if rawArgs != nil {
+		if err := json.Unmarshal(rawArgs, &args); err != nil {
+			return errResponsef("invalid args: %v", err)
+		}
+	}
+
+	if errResp := d.applyBreakpointUpdates(args.BreakpointUpdates); errResp != nil {
+		return errResp
+	}
+
+	threadID := resolveThreadID(d.threadID)
+
+	if err := d.client.PauseRequest(threadID); err != nil {
+		return errResponsef("pause: %v", err)
 	}
 
 	return d.awaitStopResult()

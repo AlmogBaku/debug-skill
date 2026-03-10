@@ -104,6 +104,7 @@ Best practices:
 		newStopCmd(),
 		newStepCmd(),
 		newContinueCmd(),
+		newPauseCmd(),
 		newContextCmd(),
 		newEvalCmd(),
 		newOutputCmd(),
@@ -315,6 +316,7 @@ func newContinueCmd() *cobra.Command {
 		breaks           breakpointFlag
 		removeBreaks     breakpointFlag
 		exceptionFilters []string
+		continueTo       string
 	)
 
 	cmd := &cobra.Command{
@@ -327,16 +329,53 @@ If the program exits, prints "Program terminated" and the exit code.
 Optionally add or remove breakpoints before continuing:
   --break adds breakpoints (additive, merged with existing)
   --remove-break removes specific breakpoints
-  --break-on-exception adds exception breakpoint filters (merged with existing)`,
+  --break-on-exception adds exception breakpoint filters (merged with existing)
+  --to sets a temporary breakpoint (auto-removed after stop)`,
 		Example: `  dap continue
   dap continue --break app.py:42              # add a breakpoint and continue
   dap continue --break "app.py:42:x > 5"      # conditional breakpoint
   dap continue --remove-break app.py:10       # remove a breakpoint and continue
   dap continue --break-on-exception raised    # set exception breakpoints and continue
+  dap continue --to app.py:50                 # run to file:line (temp breakpoint)
   dap continue --session worker               # resume in a named session
   dap continue --json                         # machine-readable output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDaemonCommand("continue", ContinueArgs{
+			contArgs := ContinueArgs{
+				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
+			}
+			if continueTo != "" {
+				bp, err := parseBreakpointSpec(continueTo)
+				if err != nil {
+					return err
+				}
+				contArgs.ContinueTo = &bp
+			}
+			return runDaemonCommand("continue", contArgs)
+		},
+	}
+	cmd.Flags().StringVar(&continueTo, "to", "", "Run to file:line (temporary breakpoint, auto-removed after stop)")
+	addBreakpointFlags(cmd, &breaks, &removeBreaks, &exceptionFilters)
+	return cmd
+}
+
+func newPauseCmd() *cobra.Command {
+	var (
+		breaks           breakpointFlag
+		removeBreaks     breakpointFlag
+		exceptionFilters []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "pause",
+		Short: "Pause a running program",
+		Long: `Pause a running program. Blocks until the program stops, then returns auto-context.
+Useful when the program is running (e.g. after 'continue' from another session).
+
+Optionally update breakpoints before pausing (same flags as 'continue').`,
+		Example: `  dap pause
+  dap pause --break app.py:42   # add breakpoint, then pause`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDaemonCommand("pause", PauseArgs{
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
 			})
 		},

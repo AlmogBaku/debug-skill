@@ -234,6 +234,13 @@ func (c *DAPClient) TerminateRequest() error {
 	return c.send(request)
 }
 
+// ExceptionInfoRequest sends an 'exceptionInfo' request.
+func (c *DAPClient) ExceptionInfoRequest(threadID int) error {
+	request := &godap.ExceptionInfoRequest{Request: *c.newRequest("exceptionInfo")}
+	request.Arguments.ThreadId = threadID
+	return c.send(request)
+}
+
 // ThreadsRequest sends a 'threads' request.
 func (c *DAPClient) ThreadsRequest() error {
 	request := &godap.ThreadsRequest{Request: *c.newRequest("threads")}

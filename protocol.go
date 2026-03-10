@@ -40,16 +40,24 @@ type Response struct {
 	Data   *ContextResult `json:"data,omitempty"`
 }
 
+// ExceptionInfo holds details about an exception that caused a stop.
+type ExceptionInfo struct {
+	ExceptionID string `json:"exception_id"`
+	Description string `json:"description,omitempty"`
+	Details     string `json:"details,omitempty"`
+}
+
 // ContextResult holds the auto-context returned by execution commands.
 type ContextResult struct {
-	Reason     string       `json:"reason,omitempty"`
-	Location   *Location    `json:"location,omitempty"`
-	Source     []SourceLine `json:"source,omitempty"`
-	Locals     []Variable   `json:"locals,omitempty"`
-	Stack      []StackFrame `json:"stack,omitempty"`
-	Output     string       `json:"output,omitempty"`
-	ExitCode   *int         `json:"exit_code,omitempty"`
-	EvalResult *EvalResult  `json:"eval_result,omitempty"`
+	Reason        string         `json:"reason,omitempty"`
+	Location      *Location      `json:"location,omitempty"`
+	Source        []SourceLine   `json:"source,omitempty"`
+	Locals        []Variable     `json:"locals,omitempty"`
+	Stack         []StackFrame   `json:"stack,omitempty"`
+	Output        string         `json:"output,omitempty"`
+	ExitCode      *int           `json:"exit_code,omitempty"`
+	EvalResult    *EvalResult    `json:"eval_result,omitempty"`
+	ExceptionInfo *ExceptionInfo `json:"exception_info,omitempty"`
 
 	// Warnings from unverified breakpoints (drained on each response)
 	Warnings []string `json:"warnings,omitempty"`
@@ -122,8 +130,14 @@ type StepArgs struct {
 	BreakpointUpdates
 }
 
+// PauseArgs are arguments for the "pause" command.
+type PauseArgs struct {
+	BreakpointUpdates
+}
+
 // ContinueArgs are arguments for the "continue" command.
 type ContinueArgs struct {
+	ContinueTo *Breakpoint `json:"continue_to,omitempty"`
 	BreakpointUpdates
 }
 

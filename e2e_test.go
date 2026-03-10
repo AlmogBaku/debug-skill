@@ -510,6 +510,151 @@ func TestE2E_ConditionalBreakpoint(t *testing.T) {
 	}
 }
 
+// TestE2E_Pause tests the pause command on a long-running Python script.
+func TestE2E_Pause(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "long_loop.py")
+
+	// 1. Debug with breakpoint at line 3 (i = 0, before loop)
+	out, err := env.run("debug", scriptPath, "--break", scriptPath+":3")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+
+	// 2. Continue (loop will run) — then pause from another goroutine
+	doneCh := make(chan string, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, e := env.run("continue")
+		doneCh <- o
+		errCh <- e
+	}()
+
+	// Give the program time to enter the loop
+	time.Sleep(500 * time.Millisecond)
+
+	// 3. Pause from another connection
+	pauseOut, pauseErr := env.run("pause")
+	if pauseErr != nil {
+		// The continue goroutine might have received the stop already
+		continueOut := <-doneCh
+		<-errCh
+		if !strings.Contains(continueOut, "Stopped: pause") {
+			t.Fatalf("pause failed: %v\n%s\ncontinue out: %s", pauseErr, pauseOut, continueOut)
+		}
+	} else {
+		// Pause succeeded directly — continue goroutine should have gotten the stop
+		<-doneCh
+		<-errCh
+	}
+
+	// 4. Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+}
+
+// TestE2E_ContinueTo tests the continue --to flag (temp breakpoint).
+func TestE2E_ContinueTo(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	// 1. Debug with --stop-on-entry
+	out, err := env.run("debug", scriptPath, "--stop-on-entry")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped:") {
+		t.Errorf("expected stopped, got:\n%s", out)
+	}
+
+	// 2. continue --to simple.py:4 — should stop at line 4
+	out, err = env.run("continue", "--to", scriptPath+":4")
+	if err != nil {
+		t.Fatalf("continue --to failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, ":4") {
+		t.Errorf("expected stop at line 4, got:\n%s", out)
+	}
+
+	// 3. break list — temp BP should be gone
+	out, err = env.run("break", "list")
+	if err != nil {
+		t.Fatalf("break list failed: %v\n%s", err, out)
+	}
+	if strings.Contains(out, ":4") {
+		t.Errorf("temp breakpoint at :4 should be removed, got:\n%s", out)
+	}
+
+	// 4. continue — should terminate normally
+	out, err = env.run("continue")
+	if err != nil {
+		t.Fatalf("continue failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Program terminated") {
+		t.Errorf("expected terminated, got:\n%s", out)
+	}
+
+	// 5. Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+}
+
+// TestE2E_ExceptionInfo tests exception info in auto-context.
+func TestE2E_ExceptionInfo(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "exception.py")
+
+	// Debug with a breakpoint (to avoid stop-on-entry) and userUnhandled exception filter.
+	// The breakpoint at line 4 is where convert("abc") is called — it will stop there first.
+	out, err := env.run("debug", scriptPath, "--break", scriptPath+":4", "--break-on-exception", "userUnhandled")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+
+	// Continue — should hit the ValueError exception
+	out, err = env.run("continue")
+	if err != nil {
+		t.Fatalf("continue failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: exception") {
+		t.Errorf("expected exception stop, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Exception:") {
+		t.Errorf("expected Exception: in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ValueError") {
+		t.Errorf("expected ValueError, got:\n%s", out)
+	}
+
+	// Stop
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+}
+
 // --- Go tests ---
 
 // TestE2E_DebugGo runs a full Go debug session via dlv: debug → step → eval → continue → stop.

@@ -78,6 +78,46 @@ func TestFormatResponse_Error(t *testing.T) {
 	}
 }
 
+func TestFormatText_ExceptionInfo(t *testing.T) {
+	result := &ContextResult{
+		Reason: "exception",
+		Location: &Location{
+			File:     "app.py",
+			Line:     3,
+			Function: "convert",
+		},
+		ExceptionInfo: &ExceptionInfo{
+			ExceptionID: "ValueError",
+			Description: "invalid literal for int() with base 10: 'abc'",
+		},
+	}
+	text := FormatText(result)
+	if !strings.Contains(text, "Exception: ValueError") {
+		t.Errorf("expected Exception: ValueError, got:\n%s", text)
+	}
+	if !strings.Contains(text, "invalid literal") {
+		t.Errorf("expected exception description, got:\n%s", text)
+	}
+}
+
+func TestFormatText_ExceptionInfoWithDetails(t *testing.T) {
+	result := &ContextResult{
+		Reason: "exception",
+		ExceptionInfo: &ExceptionInfo{
+			ExceptionID: "RuntimeError",
+			Description: "something went wrong",
+			Details:     "stack trace details here",
+		},
+	}
+	text := FormatText(result)
+	if !strings.Contains(text, "Exception: RuntimeError") {
+		t.Errorf("expected RuntimeError, got:\n%s", text)
+	}
+	if !strings.Contains(text, "stack trace details here") {
+		t.Errorf("expected details, got:\n%s", text)
+	}
+}
+
 func TestFormatResponse_Terminated(t *testing.T) {
 	exitCode := 0
 	resp := &Response{
