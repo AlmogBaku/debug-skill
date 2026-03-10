@@ -1,6 +1,7 @@
 package dap
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -244,6 +245,51 @@ func TestFormatTextNoWarnings(t *testing.T) {
 	text := FormatText(r)
 	if strings.Contains(text, "Warnings:") {
 		t.Errorf("should not have Warnings section when empty, got:\n%s", text)
+	}
+}
+
+func TestRequireSession(t *testing.T) {
+	d := &Daemon{}
+
+	// No client — should return error response
+	resp := d.requireSession()
+	if resp == nil {
+		t.Fatal("expected error response when client is nil")
+	}
+	if resp.Status != "error" {
+		t.Errorf("expected status error, got %q", resp.Status)
+	}
+	if !strings.Contains(resp.Error, "no active debug session") {
+		t.Errorf("expected 'no active debug session' in error, got %q", resp.Error)
+	}
+}
+
+func TestMalformedJSONArgs(t *testing.T) {
+	d := &Daemon{}
+	// Set a fake client so requireSession passes
+	d.client = &DAPClient{}
+
+	malformed := json.RawMessage(`{invalid`)
+
+	tests := []struct {
+		name    string
+		handler func(json.RawMessage) *Response
+	}{
+		{"handleStep", d.handleStep},
+		{"handleContinue", d.handleContinue},
+		{"handleContext", d.handleContext},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := tt.handler(malformed)
+			if resp.Status != "error" {
+				t.Errorf("expected error status, got %q", resp.Status)
+			}
+			if !strings.Contains(resp.Error, "invalid args") {
+				t.Errorf("expected 'invalid args' in error, got %q", resp.Error)
+			}
+		})
 	}
 }
 

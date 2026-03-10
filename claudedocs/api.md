@@ -154,7 +154,7 @@ dap break list --json
 Add one or more breakpoints or exception filters. Setting a breakpoint on a line that already has one replaces the condition.
 
 **Flags:**
-- `--break-on-exception <filter>` — Set exception breakpoint filters (repeatable, replaces current filters)
+- `--break-on-exception <filter>` — Add exception breakpoint filters (repeatable, merged with existing)
 
 ```bash
 dap break add app.py:42

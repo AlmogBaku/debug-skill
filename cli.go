@@ -122,12 +122,29 @@ func noDaemonError(err error) error {
 	return err
 }
 
+// runDaemonCommand marshals args, sends command to daemon, prints response, exits on error.
+func runDaemonCommand(command string, args any) error {
+	var rawArgs json.RawMessage
+	if args != nil {
+		rawArgs, _ = json.Marshal(args)
+	}
+	resp, err := SendCommand(globalFlags.socketPath, &Request{Command: command, Args: rawArgs})
+	if err != nil {
+		return noDaemonError(err)
+	}
+	fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
+	if resp.Status == "error" {
+		os.Exit(1)
+	}
+	return nil
+}
+
 // addBreakpointFlags registers --break, --remove-break, --break-on-exception flags on a command.
 func addBreakpointFlags(cmd *cobra.Command, breaks, removeBreaks *breakpointFlag, exceptionFilters *[]string) {
 	cmd.Flags().Var(breaks, "break", "Add a breakpoint (repeatable: --break a.py:10 or --break \"a.py:10:x > 5\")")
 	cmd.Flags().Var(removeBreaks, "remove-break", "Remove a breakpoint by location (repeatable: --remove-break a.py:10)")
 	cmd.Flags().StringArrayVar(exceptionFilters, "break-on-exception", nil,
-		"Set exception breakpoints (repeatable, replaces current).\n"+
+		"Add exception breakpoint filters (repeatable, merged with existing).\n"+
 			"Filter IDs are backend-specific (see 'dap debug --help').")
 }
 
@@ -283,21 +300,10 @@ Optionally update breakpoints before stepping (same flags as 'continue').`,
 			if len(args) > 0 {
 				mode = args[0]
 			}
-
-			stepArgs := StepArgs{
+			return runDaemonCommand("step", StepArgs{
 				Mode:              mode,
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
-			}
-			rawArgs, _ := json.Marshal(stepArgs)
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "step", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			})
 		},
 	}
 	addBreakpointFlags(cmd, &breaks, &removeBreaks, &exceptionFilters)
@@ -321,7 +327,7 @@ If the program exits, prints "Program terminated" and the exit code.
 Optionally add or remove breakpoints before continuing:
   --break adds breakpoints (additive, merged with existing)
   --remove-break removes specific breakpoints
-  --break-on-exception replaces exception breakpoint filters`,
+  --break-on-exception adds exception breakpoint filters (merged with existing)`,
 		Example: `  dap continue
   dap continue --break app.py:42              # add a breakpoint and continue
   dap continue --break "app.py:42:x > 5"      # conditional breakpoint
@@ -330,19 +336,9 @@ Optionally add or remove breakpoints before continuing:
   dap continue --session worker               # resume in a named session
   dap continue --json                         # machine-readable output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			contArgs := ContinueArgs{
+			return runDaemonCommand("continue", ContinueArgs{
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
-			}
-			rawArgs, _ := json.Marshal(contArgs)
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "continue", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			})
 		},
 	}
 	addBreakpointFlags(cmd, &breaks, &removeBreaks, &exceptionFilters)
@@ -369,20 +365,10 @@ Optionally update breakpoints (same flags as 'continue').`,
   dap context --frame 2   # inspect caller's frame
   dap context --break app.py:42   # add breakpoint and re-fetch context`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctxArgs := ContextArgs{
+			return runDaemonCommand("context", ContextArgs{
 				Frame:             frame,
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
-			}
-			rawArgs, _ := json.Marshal(ctxArgs)
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "context", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			})
 		},
 	}
 	cmd.Flags().IntVar(&frame, "frame", 0, "Stack frame to inspect")
@@ -410,21 +396,11 @@ Optionally update breakpoints (same flags as 'continue').`,
   dap eval "self.config" --frame 1`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			evalArgs := EvalArgs{
+			return runDaemonCommand("eval", EvalArgs{
 				Expression:        args[0],
 				Frame:             frame,
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
-			}
-			rawArgs, _ := json.Marshal(evalArgs)
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "eval", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			})
 		},
 	}
 	cmd.Flags().IntVar(&frame, "frame", 0, "Stack frame for evaluation context")
@@ -451,19 +427,9 @@ Optionally update breakpoints (same flags as 'continue').`,
   dap output --json               # machine-readable output
   dap output --session worker`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			outArgs := OutputArgs{
+			return runDaemonCommand("output", OutputArgs{
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
-			}
-			rawArgs, _ := json.Marshal(outArgs)
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "output", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			})
 		},
 	}
 	addBreakpointFlags(cmd, &breaks, &removeBreaks, &exceptionFilters)
@@ -485,15 +451,7 @@ Use subcommands to list, add, remove, or clear breakpoints.`,
 		Example: `  dap break list
   dap break list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "break_list"})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			return runDaemonCommand("break_list", nil)
 		},
 	}
 
@@ -525,24 +483,15 @@ Quote specs with conditions: dap break add "app.py:42:x > 5"`,
 			if len(allBreaks) == 0 && len(addExceptionFilters) == 0 {
 				return fmt.Errorf("specify at least one breakpoint (file:line[:condition]) or --break-on-exception")
 			}
-			rawArgs, _ := json.Marshal(BreakAddArgs{
+			return runDaemonCommand("break_add", BreakAddArgs{
 				Breaks:           allBreaks,
 				ExceptionFilters: addExceptionFilters,
 			})
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "break_add", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
 		},
 	}
 	addCmd.Flags().Var(&addBreaks, "break", "Add a breakpoint (repeatable, alternative to positional args: --break \"a.py:10:x > 5\")")
 	addCmd.Flags().StringArrayVar(&addExceptionFilters, "break-on-exception", nil,
-		"Set exception breakpoint filters (repeatable, replaces current filters). Filter IDs are backend-specific (see 'dap debug --help').")
+		"Add exception breakpoint filters (repeatable, merged with existing). Filter IDs are backend-specific (see 'dap debug --help').")
 
 	// break remove
 	var (
@@ -572,19 +521,10 @@ Condition is ignored for removal — only file:line matters.`,
 			if len(allBreaks) == 0 && len(rmExceptionFilters) == 0 {
 				return fmt.Errorf("specify at least one breakpoint (file:line) or --break-on-exception")
 			}
-			rawArgs, _ := json.Marshal(BreakRemoveArgs{
+			return runDaemonCommand("break_remove", BreakRemoveArgs{
 				Breaks:           allBreaks,
 				ExceptionFilters: rmExceptionFilters,
 			})
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "break_remove", Args: rawArgs})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
 		},
 	}
 	removeCmd.Flags().Var(&rmBreaks, "break", "Remove a breakpoint (repeatable, alternative to positional args)")
@@ -597,15 +537,7 @@ Condition is ignored for removal — only file:line matters.`,
 		Short:   "Remove all breakpoints and exception filters",
 		Example: `  dap break clear`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "break_clear"})
-			if err != nil {
-				return noDaemonError(err)
-			}
-			fmt.Print(FormatResponse(resp, globalFlags.jsonOutput))
-			if resp.Status == "error" {
-				os.Exit(1)
-			}
-			return nil
+			return runDaemonCommand("break_clear", nil)
 		},
 	}
 
