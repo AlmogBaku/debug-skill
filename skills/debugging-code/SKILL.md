@@ -162,8 +162,9 @@ A loop goes wrong at an unknown iteration. Binary search it:
 
 ```
 dap debug app.py --break "app.py:45:i == 500"   # midpoint of 1000
-→ eval "is_valid(result)"                         # True → bug is after 500
-→ dap restart with --break "app.py:45:i == 750"  # narrow
+→ eval "is_valid(result)"                       # True → bug is after 500
+→ dap break add "app.py:45:i == 750"            # update the condition
+→ dap restart                                   # restart with same args, new breakpoint
 ```
 
 ~10 iterations to find the bug in 1000. Not 1000 step commands.
@@ -220,7 +221,8 @@ and observe.
 ```
 Bug: program hangs (infinite loop or deadlock)
 
-→ dap pause                         ← interrupt wherever it is
+→ dap pause                         ← interrupt wherever it is (returns OK immediately)
+  [the already-blocking debug/continue/step call returns auto-context: location + locals]
   Stopped at process() · worker.py:55, locals: i=99999
 → dap threads                       ← are other threads blocked too?
 → dap eval "lock.locked()"          ← test deadlock hypothesis

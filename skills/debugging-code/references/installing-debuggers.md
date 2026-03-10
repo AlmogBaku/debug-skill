@@ -31,13 +31,13 @@ macOS note: you may need `sudo DevToolsSecurity -enable` for debugging permissio
 - Cursor extensions (`~/.cursor/extensions/`)
 - Standalone install (`~/.dap-cli/js-debug/`)
 
-**Check:** Look for js-debug in the paths above, or run `dap debug --backend node -- node script.js` — if it fails, install below.
+**Check:** Look for js-debug in the paths above, or run `dap debug --backend js-debug script.js` — if it fails, install below.
 
 **Standalone install** (only if not found above):
 ```bash
-DAP_VER=$(curl -fsSL https://api.github.com/repos/nicmdio/vscode-js-debug/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4) && \
+DAP_VER=$(curl -fsSL https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4) && \
 mkdir -p ~/.dap-cli/js-debug && \
-curl -fsSL "https://github.com/nicmdio/vscode-js-debug/releases/download/${DAP_VER}/js-debug-dap-${DAP_VER}.tar.gz" | tar -xz -C ~/.dap-cli/js-debug
+curl -fsSL "https://github.com/microsoft/vscode-js-debug/releases/download/${DAP_VER}/js-debug-dap-${DAP_VER}.tar.gz" | tar -xz -C ~/.dap-cli/js-debug
 ```
 
 Also supports **Chrome DevTools debugging** for browser-side JavaScript.

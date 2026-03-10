@@ -106,7 +106,7 @@ dap restart                          # re-run with same args
 dap stop                             # end session
 ```
 
-Every command returns **full context automatically**: current location, surrounding source, local variables, call stack,
+Execution commands (`debug`, `continue`, `step`) return **full context automatically**: current location, surrounding source, local variables, call stack,
 and program output. No follow-up calls needed.
 
 ### Usage Examples
