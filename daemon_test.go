@@ -283,6 +283,43 @@ func TestHandleRestartNoArgs(t *testing.T) {
 	}
 }
 
+func TestHandleRestartPreservesBreakpoints(t *testing.T) {
+	// Simulate stored debug args with original breakpoint
+	original := DebugArgs{
+		Script: "app.py",
+		Breaks: []Breakpoint{{File: "app.py", Line: 10}},
+	}
+	raw, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := &Daemon{lastDebugArgs: raw}
+
+	// Simulate mid-session break add
+	d.sessionBreaks = []Breakpoint{
+		{File: "app.py", Line: 10},
+		{File: "app.py", Line: 20, Condition: "x > 5"},
+	}
+	d.sessionExceptionFilters = []string{"uncaught"}
+
+	// handleRestart will fail (no real client), but we can check that
+	// it passes updated args by inspecting lastDebugArgs after the call.
+	_ = d.handleRestart()
+
+	// Verify the stored args were updated with session breakpoints
+	var updated DebugArgs
+	if err := json.Unmarshal(d.lastDebugArgs, &updated); err != nil {
+		t.Fatalf("unmarshal updated args: %v", err)
+	}
+	if len(updated.Breaks) != 2 {
+		t.Errorf("expected 2 breaks, got %d", len(updated.Breaks))
+	}
+	if len(updated.ExceptionFilters) != 1 || updated.ExceptionFilters[0] != "uncaught" {
+		t.Errorf("expected exception filters [uncaught], got %v", updated.ExceptionFilters)
+	}
+}
+
 func TestHandlePauseNoSession(t *testing.T) {
 	d := &Daemon{}
 	resp := d.handlePause(nil)

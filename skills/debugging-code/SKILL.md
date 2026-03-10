@@ -162,9 +162,9 @@ A loop goes wrong at an unknown iteration. Binary search it:
 
 ```
 dap debug app.py --break "app.py:45:i == 500"   # midpoint of 1000
-→ eval "is_valid(result)"                       # True → bug is after 500
-→ dap break add "app.py:45:i == 750"            # update the condition
-→ dap restart                                   # restart with same args, new breakpoint
+→ dap eval "is_valid(result)"                    # True → bug is after 500
+→ dap break add "app.py:45:i == 750"             # update the condition
+→ dap restart                                    # restart preserving new breakpoint
 ```
 
 ~10 iterations to find the bug in 1000. Not 1000 step commands.

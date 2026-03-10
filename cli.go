@@ -78,7 +78,7 @@ Typical workflow:
   dap continue --to app.py:50          # run to a specific line (temp breakpoint)
   dap pause                            # interrupt a running program
   dap threads                          # list all threads
-  dap restart                          # restart session with same arguments
+  dap restart                          # restart, preserving breakpoint changes
   dap stop                             # kill session
 
 Best practices:
@@ -565,9 +565,10 @@ Use 'dap threads' to list available thread IDs.`,
 func newRestartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart",
-		Short: "Restart the debug session with the same arguments",
+		Short: "Restart the debug session preserving breakpoints",
 		Long: `Restart the debug session using the same arguments as the last 'dap debug' call.
-Kills the current session and starts a new one.`,
+Kills the current session and starts a new one. Any breakpoints added or removed
+mid-session (via 'dap break add/remove') are preserved.`,
 		Example: `  dap restart
   dap restart --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {

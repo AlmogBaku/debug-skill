@@ -1225,8 +1225,21 @@ func (d *Daemon) handleRestart() *Response {
 	if d.lastDebugArgs == nil {
 		return errResponse("no previous debug session to restart — run 'dap debug' first")
 	}
+
+	// Preserve current session breakpoints (may have been modified via break add/remove).
+	var args DebugArgs
+	if err := json.Unmarshal(d.lastDebugArgs, &args); err != nil {
+		return errResponsef("restart: %v", err)
+	}
+	args.Breaks = d.sessionBreaks
+	args.ExceptionFilters = d.sessionExceptionFilters
+	updated, err := json.Marshal(args)
+	if err != nil {
+		return errResponsef("restart: %v", err)
+	}
+
 	d.stopSession()
-	return d.handleDebug(d.lastDebugArgs)
+	return d.handleDebug(updated)
 }
 
 func (d *Daemon) handleStop() *Response {
