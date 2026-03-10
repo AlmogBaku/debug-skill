@@ -153,9 +153,8 @@ type ContinueArgs struct {
 
 // EvalArgs are arguments for the "eval" command.
 type EvalArgs struct {
-	Expression   string `json:"expression"`
-	Frame        int    `json:"frame,omitempty"`
-	ContextLines int    `json:"context_lines,omitempty"`
+	Expression string `json:"expression"`
+	Frame      int    `json:"frame,omitempty"`
 	BreakpointUpdates
 }
 

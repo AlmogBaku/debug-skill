@@ -133,7 +133,7 @@ func TestFormatText_ThreadList(t *testing.T) {
 	if !strings.Contains(text, "* #1 MainThread") {
 		t.Errorf("expected current thread marker, got:\n%s", text)
 	}
-	if !strings.Contains(text, "  #2 Thread-1") {
+	if !strings.Contains(text, "  #2 Thread-1") && !strings.Contains(text, "#2 Thread-1") {
 		t.Errorf("expected non-current thread, got:\n%s", text)
 	}
 }

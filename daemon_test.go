@@ -309,6 +309,8 @@ func TestMalformedJSONArgs(t *testing.T) {
 		{"handleContinue", d.handleContinue},
 		{"handleContext", d.handleContext},
 		{"handlePause", d.handlePause},
+		{"handleInspect", d.handleInspect},
+		{"handleThread", d.handleThread},
 	}
 
 	for _, tt := range tests {

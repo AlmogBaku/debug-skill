@@ -267,6 +267,8 @@ func (b *delveBackend) RemoteAttachArgs(host string, port int) (map[string]any, 
 	}, nil
 }
 
+// PIDAttachArgs for dlv uses "launch" with "local" mode (not "attach"),
+// because dlv's DAP API requires this for local process attachment.
 func (b *delveBackend) PIDAttachArgs(pid int) (map[string]any, error) {
 	return map[string]any{
 		"request":   "launch",

@@ -453,7 +453,6 @@ Optionally update breakpoints (same flags as 'continue').`,
 			return runDaemonCommand("eval", EvalArgs{
 				Expression:        args[0],
 				Frame:             frame,
-				ContextLines:      globalFlags.contextLines,
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
 			})
 		},

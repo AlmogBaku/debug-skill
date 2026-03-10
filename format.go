@@ -18,11 +18,11 @@ func FormatText(r *ContextResult) string {
 	if r.IsThreadList {
 		b.WriteString("Threads:\n")
 		for _, t := range r.Threads {
-			marker := "  "
+			marker := " "
 			if t.Current {
-				marker = "* "
+				marker = "*"
 			}
-			fmt.Fprintf(&b, "  %s#%d %s\n", marker, t.ID, t.Name)
+			fmt.Fprintf(&b, "  %s #%d %s\n", marker, t.ID, t.Name)
 		}
 		return b.String()
 	}

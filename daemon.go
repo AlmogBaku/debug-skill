@@ -881,56 +881,72 @@ func (d *Daemon) handleInspect(rawArgs json.RawMessage) *Response {
 		}
 	}
 
-	// Search for the variable in locals/arguments scopes
-	for _, scope := range scopes {
-		name := strings.ToLower(scope.Name)
-		if scope.VariablesReference == 0 {
-			continue
-		}
-		if !strings.Contains(name, "local") && !strings.Contains(name, "argument") &&
-			name != "locals" && name != "arguments" {
-			continue
-		}
+	// Search for variable: first in locals/arguments, then fall back to all scopes
+	isLocalScope := func(name string) bool {
+		name = strings.ToLower(name)
+		return strings.Contains(name, "local") || strings.Contains(name, "argument") ||
+			name == "locals" || name == "arguments"
+	}
 
-		if err := d.client.VariablesRequest(scope.VariablesReference); err != nil {
-			continue
-		}
-
-		for {
-			msg, err := d.readExpected()
-			if err != nil {
-				break
-			}
-			if _, ok := msg.(*godap.ErrorResponse); ok {
-				break
-			}
-			resp, ok := msg.(*godap.VariablesResponse)
-			if !ok {
+	searchScopes := func(filter func(string) bool) *Response {
+		for _, scope := range scopes {
+			if scope.VariablesReference == 0 {
 				continue
 			}
-			if !resp.Success {
-				break
+			if filter != nil && !filter(scope.Name) {
+				continue
 			}
 
-			for _, v := range resp.Body.Variables {
-				if v.Name == args.Variable {
-					nodeCount := 1
-					result := InspectResult{
-						Name:  v.Name,
-						Type:  v.Type,
-						Value: truncateString(v.Value, maxStringLen),
-					}
-					if v.VariablesReference > 0 {
-						result.Children = expandVariable(d, v.VariablesReference, 0, args.Depth, &nodeCount, 100)
-					}
-					return &Response{
-						Status: "ok",
-						Data:   &ContextResult{InspectResult: &result},
+			if err := d.client.VariablesRequest(scope.VariablesReference); err != nil {
+				continue
+			}
+
+			for {
+				msg, err := d.readExpected()
+				if err != nil {
+					break
+				}
+				if _, ok := msg.(*godap.ErrorResponse); ok {
+					break
+				}
+				resp, ok := msg.(*godap.VariablesResponse)
+				if !ok {
+					continue
+				}
+				if !resp.Success {
+					break
+				}
+
+				for _, v := range resp.Body.Variables {
+					if v.Name == args.Variable {
+						nodeCount := 1
+						result := InspectResult{
+							Name:  v.Name,
+							Type:  v.Type,
+							Value: truncateString(v.Value, maxStringLen),
+						}
+						if v.VariablesReference > 0 {
+							result.Children = expandVariable(d, v.VariablesReference, 0, args.Depth, &nodeCount, 100)
+						}
+						return &Response{
+							Status: "ok",
+							Data:   &ContextResult{InspectResult: &result},
+						}
 					}
 				}
+				break
 			}
-			break
 		}
+		return nil
+	}
+
+	// First pass: locals/arguments only
+	if resp := searchScopes(isLocalScope); resp != nil {
+		return resp
+	}
+	// Second pass: all remaining scopes (globals, module, etc.)
+	if resp := searchScopes(func(name string) bool { return !isLocalScope(name) }); resp != nil {
+		return resp
 	}
 
 	return errResponsef("variable %q not found in current scope", args.Variable)
@@ -1173,9 +1189,11 @@ func (d *Daemon) handleThread(rawArgs json.RawMessage) *Response {
 		return errResponse("thread ID required")
 	}
 
+	prevThreadID := d.threadID
 	d.threadID = args.ThreadID
 	ctx, err := getFullContext(d, d.threadID, 0, args.ContextLines)
 	if err != nil {
+		d.threadID = prevThreadID // restore on failure
 		return errResponse(err.Error())
 	}
 	return &Response{Status: "stopped", Data: ctx}
