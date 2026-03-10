@@ -1,6 +1,7 @@
 ---
 name: debugging-code
 description: Interactively debug source code — set breakpoints, step through execution line by line, inspect live variable state, evaluate expressions against the running program, and navigate the call stack to trace root causes. Use when a program crashes, raises unexpected exceptions, produces wrong output, when you need to understand how execution reached a certain state, or when print-statement debugging isn't revealing enough.
+allowed-tools: Bash(dap *)
 ---
 
 # Interactive Debugger
@@ -12,11 +13,6 @@ won't give you the answer fast enough.
 You can pause a running program at any point, read live variable values and the call stack
 at that exact moment, step forward line by line or jump to the next breakpoint, and
 evaluate arbitrary expressions against the live process — all without restarting.
-
-**Think like a developer sitting at a debugger.** Each pause is an observation. Each
-observation either confirms your current theory about the bug or disproves it and points
-somewhere new. You're not guessing — you're surgically stopping execution where the
-truth lives and reading it directly.
 
 ## Setup
 
@@ -30,12 +26,14 @@ If `dap` isn't installed, install it NOW:
 bash <(curl -fsSL https://raw.githubusercontent.com/AlmogBaku/debug-skill/master/install.sh)
 ```
 
-You MUST INSTALL `dap` before using this skill! its recommended to ask/notify the user before proceeding to install it.
+You MUST INSTALL `dap` before using this skill! Ask/notify the user before proceeding to install it.
 This tool is fully open-source and available on [GitHub](https://github.com/AlmogBaku/debug-skill), it follows best
-practices, is actively maintained, and secured. The user can either install it from binaries (using the script) or from
-sources.
+practices, is actively maintained, and secured. The user can either install it from binaries (using the installer
+script) or from sources.
 
 Supports: Python · Go · Node.js/TypeScript · Rust · C/C++
+If a backend is missing or fails to start, see `${CLAUDE_SKILL_DIR}/references/installing-debuggers.md` for installation
+instructions.
 
 For all commands and flags: `dap --help` or `dap <cmd> --help`.
 
@@ -46,28 +44,31 @@ For all commands and flags: `dap --help` or `dap <cmd> --help`.
 Choose your starting strategy based on what you know:
 
 - **Have a hypothesis** — set a breakpoint where you expect the bug: `dap debug script.py --break script.py:42`
-- **Conditional breakpoint** — only stop when a condition is met: `dap debug script.py --break "script.py:42:x > 5"` (always quote specs with conditions)
+- **Conditional breakpoint** — only stop when a condition is met: `dap debug script.py --break "script.py:42:x > 5"` (
+  always quote specs with conditions)
 - **Multi-file app** — breakpoints across modules: `--break src/api/routes.py:55 --break src/models/user.py:30`
-- **No hypothesis, small program** — walk from entry: `dap debug script.py --stop-on-entry` (avoid for large projects — startup code is noisy; bisect with breakpoints instead)
+- **No hypothesis, small program** — walk from entry: `dap debug script.py --stop-on-entry` (avoid for large projects —
+  startup code is noisy; bisect with breakpoints instead)
 - **Exception, location unknown** — `dap debug script.py --break-on-exception raised` (Python) / `all` (Go/JS)
 - **Remote process** — `dap debug --attach host:port --backend <name>`
+- **Process already running (stuck server, live issue)** — attach without restarting:
+  `dap debug --pid <PID> --backend <name>`
 
 **Session isolation:** `--session <name>` keeps concurrent agents from interfering.
-`$CLAUDE_SESSION_ID` is injected by startup hooks; use a short descriptive name as fallback (e.g. `--session myapp`).
+Tip: You might want to use your session id(${CLAUDE_SESSION_ID}) if available.
 
 Run `dap debug --help` for all flags, backends, and examples.
 
+Not every bug needs a debugger: reach for the debugger you can't determine from the source alone.
+
 ## The Debugging Mindset
 
-Debugging is investigation, not guessing. Every action should test a specific hypothesis. Don't change code hoping it
-fixes something. Understand first, fix after.
+You should reach to the debugger when reading the source code alone is not enough to understand the problem. This is a
+mind-shift from the usual "print-based debugging." That means that we fix once we VALIDATED the hypothesis and saw
+evidence to our theory.
 
-**Debugging is almost always iterative.** Your first hypothesis will often be wrong or incomplete. That's expected.
-Each stop gives you new information that refines or replaces your hypothesis. The loop is:
-
-**Observe → Hypothesize → Act → Observe → ...**
-
-Embrace it. A single breakpoint rarely reveals the root cause; three stops that eliminate possibilities are progress.
+**Two strikes, rethink.** If two hypotheses fail at the same location, your mental model is wrong.
+Re-read the code, form a *completely different* theory with different breakpoints.
 
 ## Know Your State
 
@@ -101,7 +102,8 @@ Program terminated · Exit code: 1
 ## Forming a Hypothesis
 
 Before setting a breakpoint: *"I believe the bug is in X because Y."* A good hypothesis is falsifiable — your next
-observation will confirm or disprove it. No hypothesis yet? Bisect with two breakpoints to narrow the search space, or see starting strategies above.
+observation will confirm or disprove it. No hypothesis yet? Bisect with two breakpoints to narrow the search space, or
+see starting strategies above.
 
 ## Setting Breakpoints Strategically
 
@@ -111,66 +113,71 @@ observation will confirm or disprove it. No hypothesis yet? Bisect with two brea
 
 ### Managing Breakpoints Mid-Session
 
-You don't need to restart to change breakpoints. Add or remove them on any command:
+As you learn more, add breakpoints deeper in the suspect code and remove ones that have
+served their purpose — progressive narrowing without restarting:
 
 ```bash
-dap continue --break app.py:50              # add breakpoint, then continue
-dap continue --remove-break app.py:20       # remove breakpoint, then continue
-dap step --break app.py:50                  # add breakpoint, then step
-dap context --break app.py:50               # add breakpoint without stepping
-dap continue --break-on-exception raised    # set exception filter, then continue
+dap continue --break app.py:50              # add breakpoint deeper, then continue
+dap continue --remove-break app.py:20       # drop a breakpoint you're done with
+dap break add app.py:42 app.py:60           # add multiple breakpoints at once
+dap break list                              # see what's set
+dap break clear                             # start fresh
 ```
-
-Or use dedicated breakpoint commands (no stepping, just manage breakpoints):
-
-```bash
-dap break list                              # show all breakpoints and exception filters
-dap break add app.py:42 app.py:60           # add breakpoints
-dap break add --break-on-exception uncaught # add exception filter
-dap break remove app.py:42                  # remove a breakpoint (alias: dap break rm)
-dap break clear                             # remove all breakpoints and filters
-```
-
-This is powerful for narrowing down: as you learn more, add breakpoints deeper in the
-suspect code and remove ones that have served their purpose — all without restarting.
 
 If a breakpoint is on an invalid line or the adapter adjusts it, `dap` warns you in the output.
 
 ### Conditional Breakpoints
 
 Stop only when a condition is true — essential for loops, hot paths, and specific input values.
-Syntax: `"file:line:condition"` (always quote to protect spaces and special chars).
+Syntax: `"file:line:condition"` (always quote).
 
 ```bash
-dap debug app.py --break "app.py:42:i == 100"            # loop iteration
-dap debug app.py --break "app.py:30:user_id == 123"      # specific value
-dap continue --break "app.py:50:len(items) == 0"         # mid-session add
-dap break add "app.py:42:x > threshold"                  # via break command
+dap debug app.py --break "app.py:42:i == 100"            # skip 99 iterations, stop on the one that matters
+dap debug app.py --break "app.py:30:user_id == 123"      # reproduce a user-specific bug
+dap continue --break "app.py:50:len(items) == 0"         # catch the empty-list case mid-session
 ```
 
-To update a condition on an existing breakpoint, just set it again — same file:line replaces:
+### Bisecting Loops
+
+A loop goes wrong at an unknown iteration. Binary search it:
+
+```
+dap debug app.py --break "app.py:45:i == 500"   # midpoint of 1000
+→ eval "is_valid(result)"                         # True → bug is after 500
+→ dap restart with --break "app.py:45:i == 750"  # narrow
+```
+
+~10 iterations to find the bug in 1000. Not 1000 step commands.
+
+### Invariant Breakpoints
+
+Conditional breakpoints as runtime assertions — stop the *moment* something goes wrong:
+
 ```bash
-dap break add "app.py:42:x > 10"    # replace previous condition on line 42
-dap break add app.py:42             # remove condition (unconditional)
+dap debug app.py --break "bank.py:68:balance < 0"          # catch the overdraft
+dap debug app.py --break "pipe.py:30:type(val) != int"     # type violation
 ```
-
-Removal ignores conditions — `dap break remove app.py:42` removes regardless of condition.
 
 ## Navigating Execution
 
 At each stop, choose how to advance based on what you suspect:
 
-```bash
-dap step        # step over — trust this call, advance to next line
-dap step in     # step into — suspect what's inside this function
-dap step out    # step out — you're in the wrong place, return to caller
-dap continue    # jump to next breakpoint
-dap context     # re-inspect current state without stepping
-dap output      # drain buffered stdout/stderr without full context
-dap break list  # show all breakpoints and exception filters
-```
+If you're stepping more than 3 times in a row, you need a breakpoint, not more steps.
 
-All execution commands accept `--break`, `--remove-break`, and `--break-on-exception` to adjust breakpoints inline.
+```bash
+dap step                         # step over — trust this call, advance to next line
+dap step in                      # step into — suspect what's inside this function
+dap step out                     # step out — you're in the wrong place, return to caller
+dap continue                     # jump to next breakpoint
+dap continue --to file:line      # run to line (temp breakpoint, auto-removed)
+dap context                      # re-inspect current state without stepping
+dap output                       # drain buffered stdout/stderr without full context
+dap inspect <var> --depth N      # expand nested/complex objects
+dap pause                        # interrupt a running/hanging program
+dap restart                      # restart with same args and breakpoints
+dap threads                      # list all threads
+dap thread <id>                  # switch thread context
+```
 
 `step in` crosses file boundaries — execution follows the call into whatever module it lives in. Each stop shows the
 current `file:line` so you always know where you are.
@@ -184,7 +191,46 @@ dap eval "expected == actual"       # test hypothesis on live state
 dap eval "self.config" --frame 1    # frame 1 = caller (may be a different file)
 ```
 
-Run `dap step --help`, `dap eval --help`, etc. for details.
+## When the Program Hangs
+
+When a program runs but never returns, that *is* information — something is stuck. Don't guess; interrupt
+and observe.
+
+```
+Bug: program hangs (infinite loop or deadlock)
+
+→ dap pause                         ← interrupt wherever it is
+  Stopped at process() · worker.py:55, locals: i=99999
+→ dap threads                       ← are other threads blocked too?
+→ dap eval "lock.locked()"          ← test deadlock hypothesis
+Root cause: lock never released. Fix → dap stop.
+```
+
+Check: is it one thread stuck (infinite loop, blocking I/O), or are multiple threads waiting on each
+other (deadlock)? The location where `pause` stops is your first clue.
+
+## Digging Into Complex State
+
+When a variable is opaque (`data=<MyClass object>`) or deeply nested, don't guess its structure — expand
+it. `dap inspect data --depth 2` recursively shows fields.
+
+## Skipping Ahead
+
+When you need a quick look at a specific line without committing to a permanent breakpoint, use
+`dap continue --to file:line`. It's a disposable breakpoint — stops once, then vanishes. Good for
+"I just want to see what `x` looks like at line 50" without managing breakpoint lifecycle.
+
+## Concurrency Bugs
+
+If state is wrong but the code path looks correct, consider: is another thread modifying state
+concurrently?
+
+- List threads (`dap threads`) to see what else is running. Switch context (`dap thread <id>`) to
+  suspicious threads.
+- **Deadlock pattern**: two or more threads each waiting for a resource the other holds. Check thread
+  states to confirm.
+- **Race condition**: unexpected values that change between stops. Look for shared mutable state
+  accessed without synchronization.
 
 ## Walkthrough
 
@@ -214,9 +260,16 @@ Exception: TypeError, location unknown
 Root cause: None passed where list expected.
 ```
 
+## Verify Your Fix
+
+While paused at the bug, use `eval` to test your proposed fix expression against the live state. If it
+works in eval, it'll work in code. Then edit and `dap restart` to confirm end-to-end.
+
+After applying a fix, re-run the same scenario to verify. `dap restart` re-runs with the same args and
+breakpoints — a fast feedback loop. Don't trust that a fix works until you've observed the correct
+behavior at the same breakpoint where you found the bug.
+
 ## Cleanup
 
-```bash
-dap stop                    # default session
-dap stop --session myapp    # named session
-```
+The `dap` session is usually automatically terminated when the program exits or after an idle timout.
+When the app is not closed properly (e.g. you killed it while debugging), you can terminate it manually: `dap stop`.
