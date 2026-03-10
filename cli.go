@@ -9,12 +9,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// breakpointFlag is a repeatable --break flag that displays as "file:line" in help.
-type breakpointFlag []string
+// breakpointFlag is a repeatable --break flag that parses "file:line[:condition]".
+type breakpointFlag []Breakpoint
 
-func (b *breakpointFlag) String() string     { return strings.Join(*b, ", ") }
-func (b *breakpointFlag) Set(v string) error { *b = append(*b, v); return nil }
-func (b *breakpointFlag) Type() string       { return "file:line" }
+func (b *breakpointFlag) String() string {
+	keys := make([]string, len(*b))
+	for i, bp := range *b {
+		keys[i] = bp.LocationKey()
+	}
+	return strings.Join(keys, ", ")
+}
+func (b *breakpointFlag) Set(v string) error {
+	bp, err := parseBreakpointSpec(v)
+	if err != nil {
+		return err
+	}
+	*b = append(*b, bp)
+	return nil
+}
+func (b *breakpointFlag) Type() string { return "file:line[:condition]" }
 
 // globalFlags holds flags shared across commands.
 var globalFlags struct {
@@ -111,8 +124,8 @@ func noDaemonError(err error) error {
 
 // addBreakpointFlags registers --break, --remove-break, --break-on-exception flags on a command.
 func addBreakpointFlags(cmd *cobra.Command, breaks, removeBreaks *breakpointFlag, exceptionFilters *[]string) {
-	cmd.Flags().Var(breaks, "break", "Add a breakpoint (repeatable: --break a.py:10)")
-	cmd.Flags().Var(removeBreaks, "remove-break", "Remove a breakpoint (repeatable: --remove-break a.py:10)")
+	cmd.Flags().Var(breaks, "break", "Add a breakpoint (repeatable: --break a.py:10 or --break \"a.py:10:x > 5\")")
+	cmd.Flags().Var(removeBreaks, "remove-break", "Remove a breakpoint by location (repeatable: --remove-break a.py:10)")
 	cmd.Flags().StringArrayVar(exceptionFilters, "break-on-exception", nil,
 		"Set exception breakpoints (repeatable, replaces current).\n"+
 			"Filter IDs are backend-specific (see 'dap debug --help').")
@@ -121,8 +134,8 @@ func addBreakpointFlags(cmd *cobra.Command, breaks, removeBreaks *breakpointFlag
 // breakpointUpdatesFromFlags builds a BreakpointUpdates from CLI flag values.
 func breakpointUpdatesFromFlags(breaks, removeBreaks breakpointFlag, exceptionFilters []string) BreakpointUpdates {
 	return BreakpointUpdates{
-		Breaks:           []string(breaks),
-		RemoveBreaks:     []string(removeBreaks),
+		Breaks:           []Breakpoint(breaks),
+		RemoveBreaks:     []Breakpoint(removeBreaks),
 		ExceptionFilters: exceptionFilters,
 	}
 }
@@ -144,13 +157,15 @@ func newDebugCmd() *cobra.Command {
 		Long: `Start a debug session. Auto-starts the daemon if not already running.
 
 Backend is auto-detected from the script extension. Override with --backend.
-Use --break file:line to set breakpoints (repeatable). Use --stop-on-entry to stop at the first line.
+Use --break file:line[:condition] to set breakpoints (repeatable). Quote if condition has
+spaces: --break "file:line:condition". Use --stop-on-entry to stop at the first line.
 Use -- to pass arguments to the debugged program.
 Use --attach to connect to an already-running remote DAP server (skips local spawn,
 requires --backend).
 
 Blocks until the program hits a breakpoint or exits, then returns auto-context.`,
 		Example: `  dap debug app.py --break app.py:42
+  dap debug app.py --break "app.py:42:x > 5"
   dap debug app.py --break app.py:10 --break app.py:20
   dap debug main.go --break main.go:8
   dap debug server.js --break server.js:15
@@ -169,7 +184,7 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 			}
 
 			debugArgs := DebugArgs{
-				Breaks:           []string(breaks),
+				Breaks:           []Breakpoint(breaks),
 				StopOnEntry:      stopOnEntry,
 				Attach:           attach,
 				Backend:          backend,
@@ -200,7 +215,7 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 		},
 	}
 
-	cmd.Flags().Var(&breaks, "break", "Add a breakpoint (repeatable: --break a.py:10 --break b.py:20)")
+	cmd.Flags().Var(&breaks, "break", "Add a breakpoint (repeatable: --break a.py:10 or --break \"a.py:10:x > 5\")")
 	cmd.Flags().StringVar(&attach, "attach", "", "Attach to remote debugger at host:port")
 	cmd.Flags().StringVar(&backend, "backend", "", "Debugger backend (debugpy, dlv, js-debug, lldb-dap); auto-detected from file extension")
 	cmd.Flags().BoolVar(&stopOnEntry, "stop-on-entry", false, "Stop at first line")
@@ -308,11 +323,12 @@ Optionally add or remove breakpoints before continuing:
   --remove-break removes specific breakpoints
   --break-on-exception replaces exception breakpoint filters`,
 		Example: `  dap continue
-  dap continue --break app.py:42          # add a breakpoint and continue
-  dap continue --remove-break app.py:10   # remove a breakpoint and continue
-  dap continue --break-on-exception raised # set exception breakpoints and continue
-  dap continue --session worker            # resume in a named session
-  dap continue --json                      # machine-readable output`,
+  dap continue --break app.py:42              # add a breakpoint and continue
+  dap continue --break "app.py:42:x > 5"      # conditional breakpoint
+  dap continue --remove-break app.py:10       # remove a breakpoint and continue
+  dap continue --break-on-exception raised    # set exception breakpoints and continue
+  dap continue --session worker               # resume in a named session
+  dap continue --json                         # machine-readable output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			contArgs := ContinueArgs{
 				BreakpointUpdates: breakpointUpdatesFromFlags(breaks, removeBreaks, exceptionFilters),
@@ -487,17 +503,27 @@ Use subcommands to list, add, remove, or clear breakpoints.`,
 		addExceptionFilters []string
 	)
 	addCmd := &cobra.Command{
-		Use:   "add <file:line> [file:line...]",
+		Use:   "add <file:line[:condition]> [...]",
 		Short: "Add breakpoints",
 		Long: `Add one or more breakpoints. Breakpoints are specified as positional
-arguments (file:line) or via --break-on-exception for exception filters.`,
+arguments (file:line or "file:line:condition") or via --break-on-exception for exception filters.
+Quote specs with conditions: dap break add "app.py:42:x > 5"`,
 		Example: `  dap break add app.py:42
+  dap break add "app.py:42:x > 5"
   dap break add app.py:10 app.py:20
   dap break add --break-on-exception raised`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			allBreaks := append([]string(addBreaks), args...)
+			allBreaks := make([]Breakpoint, len(addBreaks))
+			copy(allBreaks, addBreaks)
+			for _, a := range args {
+				bp, err := parseBreakpointSpec(a)
+				if err != nil {
+					return err
+				}
+				allBreaks = append(allBreaks, bp)
+			}
 			if len(allBreaks) == 0 && len(addExceptionFilters) == 0 {
-				return fmt.Errorf("specify at least one breakpoint (file:line) or --break-on-exception")
+				return fmt.Errorf("specify at least one breakpoint (file:line[:condition]) or --break-on-exception")
 			}
 			rawArgs, _ := json.Marshal(BreakAddArgs{
 				Breaks:           allBreaks,
@@ -514,9 +540,9 @@ arguments (file:line) or via --break-on-exception for exception filters.`,
 			return nil
 		},
 	}
-	addCmd.Flags().Var(&addBreaks, "break", "Add a breakpoint (repeatable, alternative to positional args)")
+	addCmd.Flags().Var(&addBreaks, "break", "Add a breakpoint (repeatable, alternative to positional args: --break \"a.py:10:x > 5\")")
 	addCmd.Flags().StringArrayVar(&addExceptionFilters, "break-on-exception", nil,
-		"Add exception filter (repeatable). Filter IDs are backend-specific (see 'dap debug --help').")
+		"Set exception breakpoint filters (repeatable, replaces current filters). Filter IDs are backend-specific (see 'dap debug --help').")
 
 	// break remove
 	var (
@@ -527,13 +553,22 @@ arguments (file:line) or via --break-on-exception for exception filters.`,
 		Use:     "remove <file:line> [file:line...]",
 		Aliases: []string{"rm"},
 		Short:   "Remove breakpoints",
-		Long: `Remove one or more breakpoints. Breakpoints are specified as positional
-arguments (file:line) or via --break-on-exception for exception filters.`,
+		Long: `Remove one or more breakpoints by location. Breakpoints are specified as positional
+arguments (file:line) or via --break-on-exception for exception filters.
+Condition is ignored for removal — only file:line matters.`,
 		Example: `  dap break remove app.py:42
   dap break remove app.py:10 app.py:20
   dap break remove --break-on-exception raised`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			allBreaks := append([]string(rmBreaks), args...)
+			allBreaks := make([]Breakpoint, len(rmBreaks))
+			copy(allBreaks, rmBreaks)
+			for _, a := range args {
+				bp, err := parseBreakpointSpec(a)
+				if err != nil {
+					return err
+				}
+				allBreaks = append(allBreaks, bp)
+			}
 			if len(allBreaks) == 0 && len(rmExceptionFilters) == 0 {
 				return fmt.Errorf("specify at least one breakpoint (file:line) or --break-on-exception")
 			}
@@ -558,8 +593,8 @@ arguments (file:line) or via --break-on-exception for exception filters.`,
 
 	// break clear
 	clearCmd := &cobra.Command{
-		Use:   "clear",
-		Short: "Remove all breakpoints and exception filters",
+		Use:     "clear",
+		Short:   "Remove all breakpoints and exception filters",
 		Example: `  dap break clear`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := SendCommand(globalFlags.socketPath, &Request{Command: "break_clear"})
