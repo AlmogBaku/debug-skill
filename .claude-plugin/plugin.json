@@ -1,7 +1,7 @@
 {
   "name": "debugging-code",
   "description": "Interactively debug source code — set breakpoints, step through execution, inspect live variables, evaluate expressions, and trace root causes.",
-  "version": "1.0.5",
+  "version": "0.3.1",
   "author": {
     "name": "Almog Baku"
   },
