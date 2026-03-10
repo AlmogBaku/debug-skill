@@ -296,19 +296,18 @@ func checkMacOSDevMode() error {
 // findLLDBDap searches for the lldb-dap binary.
 // Returns the path or "" if not found.
 func findLLDBDap() string {
-	// Check PATH first
-	if p, err := exec.LookPath("lldb-dap"); err == nil {
-		return p
-	}
-	// Homebrew LLVM on macOS
+	// Prefer Homebrew LLVM on macOS (Xcode CLT ships v17 which lacks --connection)
 	for _, p := range []string{
 		"/opt/homebrew/opt/llvm/bin/lldb-dap",
 		"/usr/local/opt/llvm/bin/lldb-dap",
-		"/usr/bin/lldb-dap",
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
+	}
+	// Fall back to PATH (catches Linux installs and custom locations)
+	if p, err := exec.LookPath("lldb-dap"); err == nil {
+		return p
 	}
 	return ""
 }
