@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: bump-skill-version
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bump-version:
@@ -43,4 +43,6 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .claude-plugin/plugin.json
           git diff --cached --quiet || git commit -m "chore: bump skill version to ${{ steps.tag.outputs.new_version }} [skip ci]"
+          git fetch origin master
+          git rebase origin/master
           git push
