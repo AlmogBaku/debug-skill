@@ -49,7 +49,8 @@ type Daemon struct {
 	// Session state
 	threadID      int
 	frameID       int
-	captureOutput bool // only capture output after first stop
+	frameIDs      []int // DAP frame IDs for the current stop, indexed by stack position
+	captureOutput bool  // only capture output after first stop
 
 	// Cleanup function for temp binaries (e.g. Go, Rust compilation)
 	cleanupFn func()
@@ -550,9 +551,12 @@ func (d *Daemon) handleEval(rawArgs json.RawMessage) *Response {
 		return &Response{Status: "error", Error: fmt.Sprintf("invalid args: %v", err)}
 	}
 
-	frameID := args.Frame
-	if frameID == 0 {
-		frameID = d.frameID
+	frameID := d.frameID // default: current (innermost) frame
+	if args.Frame > 0 {
+		if args.Frame >= len(d.frameIDs) {
+			return &Response{Status: "error", Error: fmt.Sprintf("frame %d out of range (stack has %d frames)", args.Frame, len(d.frameIDs))}
+		}
+		frameID = d.frameIDs[args.Frame]
 	}
 
 	if err := d.client.EvaluateRequest(args.Expression, frameID, "repl"); err != nil {
