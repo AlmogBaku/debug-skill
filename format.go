@@ -19,7 +19,7 @@ func FormatText(r *ContextResult) string {
 		if len(r.Breakpoints) > 0 {
 			b.WriteString("Breakpoints:\n")
 			for _, bp := range r.Breakpoints {
-				fmt.Fprintf(&b, "  %s\n", bp)
+				fmt.Fprintf(&b, "  %s\n", bp.String())
 			}
 		} else {
 			b.WriteString("Breakpoints: (none)\n")
@@ -104,6 +104,14 @@ func FormatText(r *ContextResult) string {
 		}
 	}
 
+	// Warnings
+	if len(r.Warnings) > 0 {
+		b.WriteString("\nWarnings:\n")
+		for _, w := range r.Warnings {
+			fmt.Fprintf(&b, "  ⚠ %s\n", w)
+		}
+	}
+
 	return b.String()
 }
 
@@ -132,6 +140,12 @@ func FormatResponse(resp *Response, jsonOutput bool) string {
 				b.WriteString("Output:\n")
 				for _, line := range strings.Split(strings.TrimRight(resp.Data.Output, "\n"), "\n") {
 					fmt.Fprintf(&b, "  %s\n", line)
+				}
+			}
+			if len(resp.Data.Warnings) > 0 {
+				b.WriteString("\nWarnings:\n")
+				for _, w := range resp.Data.Warnings {
+					fmt.Fprintf(&b, "  ⚠ %s\n", w)
 				}
 			}
 		}

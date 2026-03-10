@@ -7,6 +7,26 @@ import (
 	"io"
 )
 
+// Breakpoint represents a source breakpoint with optional condition.
+type Breakpoint struct {
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	Condition string `json:"condition,omitempty"`
+}
+
+// LocationKey returns "file:line" — the identity key for merging/removing.
+func (b Breakpoint) LocationKey() string {
+	return fmt.Sprintf("%s:%d", b.File, b.Line)
+}
+
+// String returns a human-readable representation.
+func (b Breakpoint) String() string {
+	if b.Condition != "" {
+		return fmt.Sprintf("%s:%d (when %s)", b.File, b.Line, b.Condition)
+	}
+	return fmt.Sprintf("%s:%d", b.File, b.Line)
+}
+
 // Request is sent from CLI to daemon over Unix socket.
 type Request struct {
 	Command string          `json:"command"`
@@ -31,10 +51,13 @@ type ContextResult struct {
 	ExitCode   *int         `json:"exit_code,omitempty"`
 	EvalResult *EvalResult  `json:"eval_result,omitempty"`
 
+	// Warnings from unverified breakpoints (drained on each response)
+	Warnings []string `json:"warnings,omitempty"`
+
 	// Break list results
-	Breakpoints      []string `json:"breakpoints,omitempty"`
-	ExceptionFilters []string `json:"exception_filters,omitempty"`
-	IsBreakList      bool     `json:"is_break_list,omitempty"`
+	Breakpoints      []Breakpoint `json:"breakpoints,omitempty"`
+	ExceptionFilters []string     `json:"exception_filters,omitempty"`
+	IsBreakList      bool         `json:"is_break_list,omitempty"`
 }
 
 // Location identifies a position in source code.
@@ -77,20 +100,20 @@ type EvalResult struct {
 
 // BreakpointUpdates holds breakpoint modifications shared across commands.
 type BreakpointUpdates struct {
-	Breaks           []string `json:"breaks,omitempty"`            // "file:line" breakpoints to add (additive)
-	RemoveBreaks     []string `json:"remove_breaks,omitempty"`     // "file:line" breakpoints to remove
-	ExceptionFilters []string `json:"exception_filters,omitempty"` // backend-specific filter IDs (replaces current)
+	Breaks           []Breakpoint `json:"breaks,omitempty"`            // breakpoints to add (additive)
+	RemoveBreaks     []Breakpoint `json:"remove_breaks,omitempty"`     // breakpoints to remove
+	ExceptionFilters []string     `json:"exception_filters,omitempty"` // backend-specific filter IDs (replaces current)
 }
 
 // DebugArgs are arguments for the "debug" command.
 type DebugArgs struct {
-	Script           string   `json:"script"`
-	Backend          string   `json:"backend,omitempty"`
-	Breaks           []string `json:"breaks,omitempty"` // "file:line" format
-	StopOnEntry      bool     `json:"stop_on_entry,omitempty"`
-	Attach           string   `json:"attach,omitempty"` // "host:port" for remote
-	ProgramArgs      []string `json:"program_args,omitempty"`
-	ExceptionFilters []string `json:"exception_filters,omitempty"` // backend-specific filter IDs
+	Script           string       `json:"script"`
+	Backend          string       `json:"backend,omitempty"`
+	Breaks           []Breakpoint `json:"breaks,omitempty"`
+	StopOnEntry      bool         `json:"stop_on_entry,omitempty"`
+	Attach           string       `json:"attach,omitempty"` // "host:port" for remote
+	ProgramArgs      []string     `json:"program_args,omitempty"`
+	ExceptionFilters []string     `json:"exception_filters,omitempty"` // backend-specific filter IDs
 }
 
 // StepArgs are arguments for the "step" command.
@@ -124,14 +147,14 @@ type OutputArgs struct {
 
 // BreakAddArgs are arguments for the "break_add" command.
 type BreakAddArgs struct {
-	Breaks           []string `json:"breaks,omitempty"`
-	ExceptionFilters []string `json:"exception_filters,omitempty"`
+	Breaks           []Breakpoint `json:"breaks,omitempty"`
+	ExceptionFilters []string     `json:"exception_filters,omitempty"`
 }
 
 // BreakRemoveArgs are arguments for the "break_remove" command.
 type BreakRemoveArgs struct {
-	Breaks           []string `json:"breaks,omitempty"`
-	ExceptionFilters []string `json:"exception_filters,omitempty"`
+	Breaks           []Breakpoint `json:"breaks,omitempty"`
+	ExceptionFilters []string     `json:"exception_filters,omitempty"`
 }
 
 // --- Length-prefixed JSON IPC ---

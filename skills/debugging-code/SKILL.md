@@ -46,6 +46,7 @@ For all commands and flags: `dap --help` or `dap <cmd> --help`.
 Choose your starting strategy based on what you know:
 
 - **Have a hypothesis** — set a breakpoint where you expect the bug: `dap debug script.py --break script.py:42`
+- **Conditional breakpoint** — only stop when a condition is met: `dap debug script.py --break "script.py:42:x > 5"` (always quote specs with conditions)
 - **Multi-file app** — breakpoints across modules: `--break src/api/routes.py:55 --break src/models/user.py:30`
 - **No hypothesis, small program** — walk from entry: `dap debug script.py --stop-on-entry` (avoid for large projects — startup code is noisy; bisect with breakpoints instead)
 - **Exception, location unknown** — `dap debug script.py --break-on-exception raised` (Python) / `all` (Go/JS)
@@ -132,6 +133,28 @@ dap break clear                             # remove all breakpoints and filters
 
 This is powerful for narrowing down: as you learn more, add breakpoints deeper in the
 suspect code and remove ones that have served their purpose — all without restarting.
+
+If a breakpoint is on an invalid line or the adapter adjusts it, `dap` warns you in the output.
+
+### Conditional Breakpoints
+
+Stop only when a condition is true — essential for loops, hot paths, and specific input values.
+Syntax: `"file:line:condition"` (always quote to protect spaces and special chars).
+
+```bash
+dap debug app.py --break "app.py:42:i == 100"            # loop iteration
+dap debug app.py --break "app.py:30:user_id == 123"      # specific value
+dap continue --break "app.py:50:len(items) == 0"         # mid-session add
+dap break add "app.py:42:x > threshold"                  # via break command
+```
+
+To update a condition on an existing breakpoint, just set it again — same file:line replaces:
+```bash
+dap break add "app.py:42:x > 10"    # replace previous condition on line 42
+dap break add app.py:42             # remove condition (unconditional)
+```
+
+Removal ignores conditions — `dap break remove app.py:42` removes regardless of condition.
 
 ## Navigating Execution
 
