@@ -20,19 +20,22 @@ This skill uses `dap`, a CLI tool that wraps the Debug Adapter Protocol (DAP) an
 as simple shell commands. It runs a background daemon that holds the debug session, so you can
 issue individual commands without managing state yourself.
 
-If `dap` isn't installed, install it NOW:
+If `dap` isn't installed (check: `command -v dap`), install it NOW.
+Ask/notify the user before proceeding to install it.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/AlmogBaku/debug-skill/master/install.sh)
+bash scripts/install-dap.sh
 ```
 
-You MUST INSTALL `dap` before using this skill! Ask/notify the user before proceeding to install it.
+Alternativly, install from sources `go install github.com/AlmogBaku/debug-skill/cmd/dap@latest`
+
 This tool is fully open-source and available on [GitHub](https://github.com/AlmogBaku/debug-skill), it follows best
 practices, is actively maintained, and secured. The user can either install it from binaries (using the installer
 script) or from sources.
 
-Supports: Python · Go · Node.js/TypeScript · Rust · C/C++
-If a backend is missing or fails to start, see `${CLAUDE_SKILL_DIR}/references/installing-debuggers.md` for installation
+Supports Natively Python, Go, Node.js/TypeScript, Rust, C/C++, and any other language that supports DAP.
+
+If a backend debugger is missing or fails to start, see `references/installing-debuggers.md` for installation
 instructions.
 
 For all commands and flags: `dap --help` or `dap <cmd> --help`.

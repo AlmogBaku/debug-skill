@@ -64,7 +64,7 @@ npx skills add AlmogBaku/debug-skill
 # or: bunx skills add AlmogBaku/debug-skill
 ```
 
-Or manually copy `skills/debugging-code/SKILL.md` into your agent's system prompt or context.
+Or manually copy `skills/debugging-code/` into your agent's skills.
 
 ---
 
@@ -77,7 +77,7 @@ CLI sends one command and gets back the full context — no interactive terminal
 
 ```bash
 # One-liner (Linux & macOS)
-bash <(curl -fsSL https://raw.githubusercontent.com/AlmogBaku/debug-skill/master/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/AlmogBaku/debug-skill/master/skills/debugging-code/scripts/install-dap.sh)
 ```
 
 <details>
