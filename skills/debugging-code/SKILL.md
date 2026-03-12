@@ -16,8 +16,8 @@ evaluate arbitrary expressions against the live process — all without restarti
 
 ## Setup
 
-This skill uses `dap`, a CLI tool that wraps the Debug Adapter Protocol (DAP) and exposes it
-as simple commands.
+This skill uses `dap`, a CLI tool that background daemon to interact with the debugger via the DAP Protocol, maintain
+the debugger state, so you can simply interact with it with multiple calls.
 
 If `dap` isn't installed (check: `command -v dap`), install it NOW.
 Ask/notify the user before proceeding to install it.
@@ -26,12 +26,12 @@ Ask/notify the user before proceeding to install it.
 bash scripts/install-dap.sh
 ```
 
-Alternativly, install from sources `go install github.com/AlmogBaku/debug-skill/cmd/dap@latest`
+Alternatively, install from sources `go install github.com/AlmogBaku/debug-skill/cmd/dap@latest`
 
-This tool is open-sourced and available on [GitHub](https://github.com/AlmogBaku/debug-skill), maintaind and follows
+This tool is open-sourced and available on [GitHub](https://github.com/AlmogBaku/debug-skill), maintained and follows
 best practices.
 
-Supports Natively Python, Go, Node.js/TypeScript, Rust, C/C++, and any other language that supports DAP.
+Supports natively Python, Go, Node.js/TypeScript, Rust, C/C++, and any other language that supports DAP.
 
 If a debugger backend is missing or fails to start, see `references/installing-debuggers.md`
 
@@ -61,7 +61,7 @@ Run `dap debug --help` for all flags, backends, and examples.
 
 ## The Debugging Mindset
 
-Not every bug needs a debugger — reach for it when reading source alone can't explain the behavior.
+Reach for a debugger when reading source alone can't validate the root cause.
 A debugger lets you *observe* what *does* happen: actual values, actual path, actual state.
 When that diverges from what *should* happen, you've found your bug.
 
@@ -121,7 +121,7 @@ see starting strategies above.
 - **Boundaries** — where data crosses a format, representation, or module boundary; state is cleanest here
 - **State transitions** — the line that assigns or mutates the corrupted value
 - **Wrong branch** — the condition whose inputs led to the bad path
-- **Anti-patterns** — don't break inside library code; break at the call site instead. Don't use unconditional breaks in
+- **Antipatterns** — don't break inside library code; break at the call site instead. Don't use unconditional breaks in
   tight loops — use conditions.
 
 ### Managing Breakpoints Mid-Session
