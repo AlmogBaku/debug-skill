@@ -4,6 +4,10 @@ on:
   pull_request:
   push:
     branches: [master]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
 
 jobs:
   lint:
