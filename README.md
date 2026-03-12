@@ -64,7 +64,7 @@ npx skills add AlmogBaku/debug-skill
 # or: bunx skills add AlmogBaku/debug-skill
 ```
 
-Or manually copy `skills/debugging-code/SKILL.md` into your agent's system prompt or context.
+Or manually copy `skills/debugging-code/` into your agent's skills.
 
 ---
 
