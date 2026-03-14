@@ -65,8 +65,12 @@ Choose your starting strategy based on what you know:
 - **Remote process** — `dap debug --attach host:port --backend <name>`
 - **Process already running (stuck server, live issue)** — attach without restarting:
   `dap debug --pid <PID> --backend <name>`
-  > **macOS + Go gotcha:** `dlv --pid` requires SIP disabled (`csrutil disable`).
-  > Prefer starting the program under the debugger instead or attaching to a remote debugger!
+  > **macOS + Go gotcha (dlv):** local PID attach requires Developer Tools security enabled.
+  > If `dap` errors, run: `sudo DevToolsSecurity -enable`
+  > Prefer starting the program under the debugger instead:
+  > ```bash
+  > dap debug main.go          # or your entrypoint
+  > ```
 
 **Session isolation:** `--session <name>` keeps concurrent agents from interfering.
 Tip: You might want to use your session id(${CLAUDE_SESSION_ID}) if available.
