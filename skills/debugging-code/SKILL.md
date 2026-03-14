@@ -23,16 +23,19 @@ If `dap` isn't installed (check: `command -v dap`), install it NOW.
 Ask/notify the user before proceeding to install it.
 
 From Homebrew (macOS)
+
 ```bash
 brew install AlmogBaku/tap/dap
 ```
 
 Installer script:
+
 ```bash
 bash scripts/install-dap.sh
 ```
 
 Install from sources:
+
 ```bash
 go install github.com/AlmogBaku/debug-skill/cmd/dap@latest
 ```
@@ -62,6 +65,8 @@ Choose your starting strategy based on what you know:
 - **Remote process** — `dap debug --attach host:port --backend <name>`
 - **Process already running (stuck server, live issue)** — attach without restarting:
   `dap debug --pid <PID> --backend <name>`
+  > **macOS + Go gotcha:** `dlv --pid` requires SIP disabled (`csrutil disable`).
+  > Prefer starting the program under the debugger instead or attaching to a remote debugger!
 
 **Session isolation:** `--session <name>` keeps concurrent agents from interfering.
 Tip: You might want to use your session id(${CLAUDE_SESSION_ID}) if available.
@@ -79,6 +84,12 @@ Re-read the code, form a *completely different* theory with different breakpoint
 
 **Escalate gradually.** Start with `dap eval` to test a quick hypothesis. Use conditional breakpoints
 to filter noise. Fall back to full breakpoints + stepping only when you need interactive control.
+
+**Mimic the user journey.** If you're debugging a user flow, set breakpoints along the path you expect the code to take.
+If you expected `compute()` to be called, but it never is, then the bug is in the caller — not `compute()`, but whatever
+was supposed to call it.
+
+**Set breakpoints instead of prints.** When you feel the urge to print something, set a breakpoint instead.
 
 ## Know Your State
 
