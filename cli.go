@@ -204,9 +204,23 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
   dap debug app.py -- --config prod.yaml --verbose
   dap debug --attach localhost:5678 --backend debugpy --break handler.py:15
   dap debug --pid 12345 --backend debugpy   # attach to running process`,
-		Args: cobra.MaximumNArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			scriptArgs := args
+			if dashIdx := cmd.ArgsLenAtDash(); dashIdx >= 0 && dashIdx <= len(args) {
+				scriptArgs = args[:dashIdx]
+			}
+			if len(scriptArgs) > 1 {
+				return fmt.Errorf("accepts at most 1 arg(s), received %d", len(scriptArgs))
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 && attach == "" && pid == 0 {
+			scriptArgs := args
+			if dashIdx := cmd.ArgsLenAtDash(); dashIdx >= 0 && dashIdx <= len(args) {
+				scriptArgs = args[:dashIdx]
+			}
+
+			if len(scriptArgs) == 0 && attach == "" && pid == 0 {
 				return fmt.Errorf("script path, --attach, or --pid required")
 			}
 
@@ -224,16 +238,13 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 				ExceptionFilters: exceptionFilters,
 				ContextLines:     globalFlags.contextLines,
 			}
-			if len(args) > 0 {
-				debugArgs.Script = args[0]
+			if len(scriptArgs) > 0 {
+				debugArgs.Script = scriptArgs[0]
 			}
 
 			// Capture program args after --
-			if dashIdx := cmd.ArgsLenAtDash(); dashIdx >= 0 {
-				allArgs := cmd.Flags().Args()
-				if dashIdx < len(allArgs) {
-					debugArgs.ProgramArgs = allArgs[dashIdx:]
-				}
+			if dashIdx := cmd.ArgsLenAtDash(); dashIdx >= 0 && dashIdx < len(args) {
+				debugArgs.ProgramArgs = append([]string(nil), args[dashIdx:]...)
 			}
 
 			rawArgs, _ := json.Marshal(debugArgs)

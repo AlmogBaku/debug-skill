@@ -197,6 +197,48 @@ func TestE2E_JSONOutput(t *testing.T) {
 	}
 }
 
+func TestE2E_DebugPython_WithProgramArgs(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+
+	scriptDir := t.TempDir()
+	scriptPath := filepath.Join(scriptDir, "args.py")
+	script := `import argparse
+
+p = argparse.ArgumentParser()
+p.add_argument("value")
+args = p.parse_args()
+value = args.value
+print(value)
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {
+		t.Fatalf("writing script: %v", err)
+	}
+
+	cmd := exec.Command(env.binary,
+		"--socket", env.socketPath,
+		"debug", scriptPath,
+		"--break", scriptPath+":6",
+		"--",
+		"example-value",
+	)
+	cmd.Dir = projectRoot(t)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("debug with program args failed: %v\n%s", err, out)
+	}
+
+	if !strings.Contains(string(out), "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+	if !strings.Contains(string(out), "value (str) = 'example-value'") {
+		t.Errorf("expected parsed CLI arg in locals, got:\n%s", out)
+	}
+}
+
 // TestE2E_DebugPython_Scheduler exercises cross-file breakpoints across a
 // multifile Python app: main.py → runner.py → resolver.py.
 func TestE2E_DebugPython_Scheduler(t *testing.T) {
