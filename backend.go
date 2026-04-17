@@ -68,6 +68,23 @@ type Backend interface {
 	PIDAttachArgs(pid int) (map[string]any, error)
 }
 
+// ResolveVenvPython returns the active virtualenv's python binary if $VIRTUAL_ENV
+// is set and contains one, otherwise "". Callers pass this into DebugArgs.Python
+// so the daemon (which may have a stale env) uses the correct interpreter.
+func ResolveVenvPython() string {
+	venv := os.Getenv("VIRTUAL_ENV")
+	if venv == "" {
+		return ""
+	}
+	for _, name := range []string{"python3", "python"} {
+		p := filepath.Join(venv, "bin", name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
 // DetectBackend returns the appropriate backend based on file extension.
 func DetectBackend(script string) Backend {
 	switch strings.ToLower(filepath.Ext(script)) {
@@ -102,12 +119,19 @@ func GetBackendByName(name string) (Backend, error) {
 
 // --- debugpy backend (Python) ---
 
-type debugpyBackend struct{}
+// debugpyBackend spawns debugpy with Python. If Python is empty, "python3" from PATH is used.
+type debugpyBackend struct {
+	Python string
+}
 
 func (b *debugpyBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	_, actualPort := normalizePort(port)
 
-	cmd := exec.Command("python3", "-m", "debugpy.adapter", "--host", "127.0.0.1", "--port", actualPort, "--log-stderr")
+	python := b.Python
+	if python == "" {
+		python = "python3"
+	}
+	cmd := exec.Command(python, "-m", "debugpy.adapter", "--host", "127.0.0.1", "--port", actualPort, "--log-stderr")
 	cmd.Stdout = nil
 
 	stderrPipe, err := cmd.StderrPipe()

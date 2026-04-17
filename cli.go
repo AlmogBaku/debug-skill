@@ -180,6 +180,7 @@ func newDebugCmd() *cobra.Command {
 		backend          string
 		stopOnEntry      bool
 		exceptionFilters []string
+		python           string
 	)
 
 	cmd := &cobra.Command{
@@ -215,6 +216,10 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 				return err
 			}
 
+			resolvedPython := python
+			if resolvedPython == "" {
+				resolvedPython = ResolveVenvPython()
+			}
 			debugArgs := DebugArgs{
 				Breaks:           []Breakpoint(breaks),
 				StopOnEntry:      stopOnEntry,
@@ -223,6 +228,7 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 				Backend:          backend,
 				ExceptionFilters: exceptionFilters,
 				ContextLines:     globalFlags.contextLines,
+				Python:           resolvedPython,
 			}
 			if len(args) > 0 {
 				debugArgs.Script = args[0]
@@ -254,6 +260,7 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 	cmd.Flags().IntVar(&pid, "pid", 0, "Attach to a running process by PID (requires --backend)")
 	cmd.Flags().StringVar(&backend, "backend", "", "Debugger backend (debugpy, dlv, js-debug, lldb-dap); auto-detected from file extension")
 	cmd.Flags().BoolVar(&stopOnEntry, "stop-on-entry", false, "Stop at first line")
+	cmd.Flags().StringVar(&python, "python", "", "Python interpreter for debugpy backend (default: $VIRTUAL_ENV/bin/python, else python3 on PATH)")
 	cmd.Flags().StringArrayVar(&exceptionFilters, "break-on-exception", nil,
 		"Stop on exception; repeatable (e.g. --break-on-exception raised).\n"+
 			"Filter IDs are backend-specific:\n"+

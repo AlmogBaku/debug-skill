@@ -529,6 +529,9 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 	} else {
 		return errResponse("script path, --attach, or --pid required")
 	}
+	if b, ok := backend.(*debugpyBackend); ok && args.Python != "" {
+		b.Python = args.Python
+	}
 	d.backend = backend
 	d.stopSession() // clean up any previous session
 

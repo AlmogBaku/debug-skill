@@ -10,6 +10,12 @@
 
 **Install:** `pip install debugpy`
 
+**Virtualenv:** `dap` picks up the active venv automatically via `$VIRTUAL_ENV`.
+Activate the venv (`source .venv/bin/activate`) before running `dap debug`, or pass
+`--python /path/to/venv/bin/python` to override. Without either, `dap` falls back
+to `python3` on PATH — which may not have `debugpy` installed or may be the wrong
+interpreter version.
+
 ---
 
 ## Go — Delve
