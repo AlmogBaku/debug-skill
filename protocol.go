@@ -129,6 +129,7 @@ type DebugArgs struct {
 	ProgramArgs      []string     `json:"program_args,omitempty"`
 	ExceptionFilters []string     `json:"exception_filters,omitempty"` // backend-specific filter IDs
 	ContextLines     int          `json:"context_lines,omitempty"`
+	Python           string       `json:"python,omitempty"` // debugpy only: interpreter path; resolved from $VIRTUAL_ENV if empty
 }
 
 // StepArgs are arguments for the "step" command.

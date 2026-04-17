@@ -68,6 +68,65 @@ type Backend interface {
 	PIDAttachArgs(pid int) (map[string]any, error)
 }
 
+// ResolveVenvPython returns the active virtualenv's python binary if $VIRTUAL_ENV
+// is set and contains one, otherwise "". Callers pass this into DebugArgs.Python
+// so the daemon (which may have a stale env) uses the correct interpreter.
+// Returned path is absolute.
+func ResolveVenvPython() string {
+	venv := os.Getenv("VIRTUAL_ENV")
+	if venv == "" {
+		return ""
+	}
+	// Windows venvs put the interpreter under Scripts\; POSIX venvs use bin/.
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		candidates = []string{
+			filepath.Join(venv, "Scripts", "python.exe"),
+			filepath.Join(venv, "Scripts", "python3.exe"),
+		}
+	} else {
+		candidates = []string{
+			filepath.Join(venv, "bin", "python3"),
+			filepath.Join(venv, "bin", "python"),
+		}
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			if abs, err := filepath.Abs(p); err == nil {
+				return abs
+			}
+			return p
+		}
+	}
+	return ""
+}
+
+// ResolvePythonFlag turns a user-supplied --python value into an absolute path
+// the daemon can exec directly. Bare names go through exec.LookPath (using the
+// caller's PATH, not the daemon's); paths are made absolute. Returns an error
+// if the binary cannot be found or doesn't exist.
+func ResolvePythonFlag(python string) (string, error) {
+	if strings.ContainsRune(python, filepath.Separator) || (runtime.GOOS == "windows" && strings.ContainsRune(python, '/')) {
+		abs, err := filepath.Abs(python)
+		if err != nil {
+			return "", fmt.Errorf("resolving --python path: %w", err)
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return "", fmt.Errorf("--python %q: %w", python, err)
+		}
+		return abs, nil
+	}
+	found, err := exec.LookPath(python)
+	if err != nil {
+		return "", fmt.Errorf("--python %q not found on PATH: %w", python, err)
+	}
+	abs, err := filepath.Abs(found)
+	if err != nil {
+		return found, nil
+	}
+	return abs, nil
+}
+
 // DetectBackend returns the appropriate backend based on file extension.
 func DetectBackend(script string) Backend {
 	switch strings.ToLower(filepath.Ext(script)) {
@@ -102,12 +161,19 @@ func GetBackendByName(name string) (Backend, error) {
 
 // --- debugpy backend (Python) ---
 
-type debugpyBackend struct{}
+// debugpyBackend spawns debugpy with python. If python is empty, "python3" from PATH is used.
+type debugpyBackend struct {
+	python string
+}
 
 func (b *debugpyBackend) Spawn(port string) (*exec.Cmd, string, error) {
 	_, actualPort := normalizePort(port)
 
-	cmd := exec.Command("python3", "-m", "debugpy.adapter", "--host", "127.0.0.1", "--port", actualPort, "--log-stderr")
+	python := b.python
+	if python == "" {
+		python = "python3"
+	}
+	cmd := exec.Command(python, "-m", "debugpy.adapter", "--host", "127.0.0.1", "--port", actualPort, "--log-stderr")
 	cmd.Stdout = nil
 
 	stderrPipe, err := cmd.StderrPipe()

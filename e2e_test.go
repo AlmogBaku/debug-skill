@@ -100,6 +100,15 @@ func (e *e2eEnv) run(args ...string) (string, error) {
 	return string(out), err
 }
 
+// runEnv is like run but with extra environment variables merged into os.Environ().
+func (e *e2eEnv) runEnv(extraEnv []string, args ...string) (string, error) {
+	cmd := exec.Command(e.binary, append(args, "--socket", e.socketPath)...)
+	cmd.Dir = projectRoot(e.t)
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // --- Python tests ---
 
 // TestE2E_DebugPython runs a full debug session: debug → step → eval → continue → stop.
@@ -194,6 +203,75 @@ func TestE2E_JSONOutput(t *testing.T) {
 	}
 	if result.Location == nil || result.Location.Line != 2 {
 		t.Errorf("expected line 2, got: %+v", result.Location)
+	}
+}
+
+// TestE2E_DebugPython_ExplicitPython verifies --python uses the specified interpreter.
+// Uses `exec.LookPath("python3")` to get a real interpreter, then confirms the flag is
+// accepted end-to-end (daemon → debugpyBackend → spawn).
+func TestE2E_DebugPython_ExplicitPython(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not on PATH")
+	}
+	if err := exec.Command(py, "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	out, err := env.run("debug", scriptPath, "--break", scriptPath+":3", "--python", py)
+	if err != nil {
+		t.Fatalf("debug --python failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") {
+		t.Errorf("expected breakpoint stop, got:\n%s", out)
+	}
+	_, _ = env.run("stop")
+}
+
+// TestE2E_DebugPython_BogusPythonFails verifies --python with a non-existent binary
+// produces a clear error (instead of silently falling back to system python3).
+func TestE2E_DebugPython_BogusPythonFails(t *testing.T) {
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	bogus := filepath.Join(t.TempDir(), "nope-python")
+	out, err := env.run("debug", scriptPath, "--python", bogus)
+	if err == nil {
+		t.Fatalf("expected failure with bogus --python, got success:\n%s", out)
+	}
+}
+
+// TestE2E_DebugPython_VenvAutoDetect verifies that $VIRTUAL_ENV is picked up
+// automatically: a venv dir with a stub "python3" that is NOT debugpy-capable
+// should be used (and fail visibly), proving the venv's interpreter was chosen
+// over the system one.
+func TestE2E_DebugPython_VenvAutoDetect(t *testing.T) {
+	if err := exec.Command("python3", "-c", "import debugpy").Run(); err != nil {
+		t.Skip("debugpy not installed on system python3")
+	}
+
+	env := newE2EEnv(t)
+	scriptPath := filepath.Join(projectRoot(t), "testdata", "python", "simple.py")
+
+	// Build a fake venv whose python3 exits immediately (no debugpy).
+	venv := t.TempDir()
+	binDir := filepath.Join(venv, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := filepath.Join(binDir, "python3")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// With VIRTUAL_ENV pointing at the fake venv, dap should use the stub
+	// (and fail to start the adapter) rather than falling back to system python3.
+	out, err := env.runEnv([]string{"VIRTUAL_ENV=" + venv}, "debug", scriptPath, "--break", scriptPath+":3")
+	if err == nil {
+		t.Fatalf("expected failure using stub venv python, got success — venv was not picked up:\n%s", out)
 	}
 }
 

@@ -260,8 +260,15 @@ func (d *Daemon) readExpected() (godap.Message, error) {
 //	  └─ default ──► DROP (ProcessEvent, ThreadEvent, ModuleEvent, etc.)
 func (d *Daemon) readLoop() {
 	defer close(d.expectCh)
+	// Pin the client for this loop's lifetime: stopSession() sets d.client = nil,
+	// which would race with d.client.ReadMessage() here and panic. The client's
+	// Close() will unblock ReadMessage() with an error and the loop returns.
+	client := d.getClient()
+	if client == nil {
+		return
+	}
 	for {
-		msg, err := d.client.ReadMessage()
+		msg, err := client.ReadMessage()
 		if err != nil {
 			return
 		}
@@ -528,6 +535,9 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		return errResponse("backend required for PID attach (e.g. --backend debugpy)")
 	} else {
 		return errResponse("script path, --attach, or --pid required")
+	}
+	if b, ok := backend.(*debugpyBackend); ok && args.Python != "" {
+		b.python = args.Python
 	}
 	d.backend = backend
 	d.stopSession() // clean up any previous session
