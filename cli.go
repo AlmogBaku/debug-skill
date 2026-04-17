@@ -216,8 +216,14 @@ Blocks until the program hits a breakpoint or exits, then returns auto-context.`
 				return err
 			}
 
-			resolvedPython := python
-			if resolvedPython == "" {
+			var resolvedPython string
+			if python != "" {
+				p, err := ResolvePythonFlag(python)
+				if err != nil {
+					return err
+				}
+				resolvedPython = p
+			} else {
 				resolvedPython = ResolveVenvPython()
 			}
 			debugArgs := DebugArgs{
