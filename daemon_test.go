@@ -1,12 +1,16 @@
 package dap
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	godap "github.com/google/go-dap"
 )
 
 func TestOutputBufferBoundedAtWrite(t *testing.T) {
@@ -490,5 +494,142 @@ func TestMergeBreakpoints(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// serveChildSession plays the child side of a js-debug style adapter: it answers
+// the daemon's handshake on conn and emits a StoppedEvent once configurationDone
+// arrives. It returns when the connection closes.
+func serveChildSession(conn net.Conn) {
+	r := bufio.NewReader(conn)
+	seq := 100
+	next := func() int { seq++; return seq }
+	for {
+		msg, err := godap.ReadProtocolMessage(r)
+		if err != nil {
+			return
+		}
+		req, ok := msg.(godap.RequestMessage)
+		if !ok {
+			continue
+		}
+		cmd := req.GetRequest().Command
+		if cmd == "launch" {
+			_ = godap.WriteProtocolMessage(conn, &godap.InitializedEvent{
+				Event: godap.Event{ProtocolMessage: godap.ProtocolMessage{Seq: next(), Type: "event"}, Event: "initialized"},
+			})
+		}
+		_ = godap.WriteProtocolMessage(conn, &godap.Response{
+			ProtocolMessage: godap.ProtocolMessage{Seq: next(), Type: "response"},
+			RequestSeq:      req.GetRequest().Seq,
+			Success:         true,
+			Command:         cmd,
+		})
+		if cmd == "configurationDone" {
+			_ = godap.WriteProtocolMessage(conn, &godap.StoppedEvent{
+				Event: godap.Event{ProtocolMessage: godap.ProtocolMessage{Seq: next(), Type: "event"}, Event: "stopped"},
+				Body:  godap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1},
+			})
+		}
+	}
+}
+
+// TestReadLoop_ChildSessionHandoff mirrors js-debug's multi-session protocol with
+// a fake adapter: the parent connection only asks for a child session through the
+// startDebugging reverse request, and the debuggee's events arrive on a second
+// connection. Without a reader on that child connection the StoppedEvent below
+// never reaches the channel and every execution command hangs. Needs no js-debug.
+func TestReadLoop_ChildSessionHandoff(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	d := &Daemon{backend: &jsDebugBackend{}, adapterAddr: ln.Addr().String()}
+
+	parentAck := make(chan godap.Message, 1)
+	go func() {
+		parent, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = parent.Close() }()
+		_ = godap.WriteProtocolMessage(parent, &godap.StartDebuggingRequest{
+			Request: godap.Request{ProtocolMessage: godap.ProtocolMessage{Seq: 1, Type: "request"}, Command: "startDebugging"},
+			Arguments: godap.StartDebuggingRequestArguments{
+				Configuration: map[string]any{"type": "pwa-node", "name": "child"},
+				Request:       "launch",
+			},
+		})
+		// The acknowledgement must come back on the parent connection.
+		ack, err := godap.ReadProtocolMessage(bufio.NewReader(parent))
+		if err != nil {
+			return
+		}
+		parentAck <- ack
+
+		child, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = child.Close() }()
+		serveChildSession(child)
+	}()
+
+	parentClient, err := newDAPClient(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parentClient.Close()
+	d.setClient(parentClient)
+	ch := make(chan godap.Message, 64)
+	go d.readLoop(parentClient, ch)
+
+	deadline := time.After(5 * time.Second)
+	var stopped *godap.StoppedEvent
+	for stopped == nil {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				t.Fatal("channel closed before the child's StoppedEvent arrived")
+			}
+			stopped, _ = msg.(*godap.StoppedEvent)
+		case <-deadline:
+			t.Fatal("the child session's StoppedEvent never reached the channel")
+		}
+	}
+	if stopped.Body.Reason != "breakpoint" {
+		t.Errorf("stopped reason = %q, want breakpoint", stopped.Body.Reason)
+	}
+
+	select {
+	case ack := <-parentAck:
+		if _, ok := ack.(*godap.StartDebuggingResponse); !ok {
+			t.Errorf("parent connection received %T, want *godap.StartDebuggingResponse", ack)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("startDebugging was never acknowledged on the parent connection")
+	}
+
+	child := d.getClient()
+	if child == parentClient {
+		t.Fatal("d.client still points at the parent session")
+	}
+
+	// Ending both connections ends both loops; the channel must close exactly
+	// once (a second close would panic).
+	child.Close()
+	parentClient.Close()
+	deadline = time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("channel was not closed after both connections ended")
+		}
 	}
 }

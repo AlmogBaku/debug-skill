@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["greet.ts"],
+  "sourcesContent": ["interface Person {\n  name: string;\n  age: number;\n}\n\nfunction greet(p: Person): string {\n  const label: string = p.age >= 18 ? \"adult\" : \"minor\";\n  return `Hello ${p.name} (${label})`;\n}\n\nconst message: string = greet({ name: \"Ada\", age: 36 });\nconsole.log(message);\n"],
+  "mappings": "AAKA,SAAS,MAAM,GAAmB;AAChC,QAAM,QAAgB,EAAE,OAAO,KAAK,UAAU;AAC9C,SAAO,SAAS,EAAE,IAAI,KAAK,KAAK;AAClC;AAEA,MAAM,UAAkB,MAAM,EAAE,MAAM,OAAO,KAAK,GAAG,CAAC;AACtD,QAAQ,IAAI,OAAO;",
+  "names": []
+}

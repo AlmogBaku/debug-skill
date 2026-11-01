@@ -1135,6 +1135,66 @@ func TestE2E_DebugNode(t *testing.T) {
 	}
 }
 
+// TestE2E_DebugTypeScript debugs compiled JavaScript and breaks on a line of the
+// original .ts source, covering the common TypeScript workflow end to end. Like
+// TestE2E_DebugNode, it depends on the daemon reading js-debug's child session.
+//
+// The breakpoint is added after --stop-on-entry because a sub-second script can
+// finish before a launch-time .ts breakpoint binds.
+//
+// testdata/node/ts/greet.js(.map) is committed so the test needs no compiler.
+// Regenerate with: esbuild greet.ts --outfile=greet.js --format=cjs --platform=node --sourcemap
+func TestE2E_DebugTypeScript(t *testing.T) {
+	if FindJSDebugServer() == "" {
+		t.Skip("js-debug not found")
+	}
+
+	env := newE2EEnv(t)
+	dir := filepath.Join(projectRoot(t), "testdata", "node", "ts")
+	program := filepath.Join(dir, "greet.js")
+	source := filepath.Join(dir, "greet.ts")
+
+	out, err := env.run("debug", program, "--stop-on-entry")
+	if err != nil {
+		t.Fatalf("debug failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "greet.ts") {
+		t.Errorf("expected entry location mapped to greet.ts, got:\n%s", out)
+	}
+
+	// greet.ts:8 is the return statement inside greet(); it compiles to greet.js:3.
+	if out, err = env.run("break", "add", source+":8"); err != nil {
+		t.Fatalf("break add failed: %v\n%s", err, out)
+	}
+
+	out, err = env.run("continue")
+	if err != nil {
+		t.Fatalf("continue failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Stopped: breakpoint") || !strings.Contains(out, "greet.ts:8") {
+		t.Fatalf("expected to stop at greet.ts:8, got:\n%s", out)
+	}
+	if !strings.Contains(out, "adult") {
+		t.Errorf("expected local label=adult, got:\n%s", out)
+	}
+
+	out, err = env.run("continue")
+	if err != nil {
+		t.Fatalf("continue failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "terminated") {
+		t.Errorf("expected terminated, got:\n%s", out)
+	}
+
+	out, err = env.run("stop")
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "OK") {
+		t.Errorf("expected OK, got:\n%s", out)
+	}
+}
+
 // --- Remote attach tests ---
 
 // TestE2E_RemoteAttach_Python tests attaching to a remote debugpy instance.
