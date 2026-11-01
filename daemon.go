@@ -258,12 +258,17 @@ func (d *Daemon) readExpected() (godap.Message, error) {
 //	  ├─ ExitedEvent ───────┤
 //	  ├─ ResponseMessage ───┘
 //	  └─ default ──► DROP (ProcessEvent, ThreadEvent, ModuleEvent, etc.)
-func (d *Daemon) readLoop() {
-	defer close(d.expectCh)
-	// Pin the client for this loop's lifetime: stopSession() sets d.client = nil,
-	// which would race with d.client.ReadMessage() here and panic. The client's
-	// Close() will unblock ReadMessage() with an error and the loop returns.
-	client := d.getClient()
+//
+// The loop owns ch until it hands off to a child session (js-debug multi-session,
+// see the startDebugging case); the client is pinned for the loop's lifetime
+// because stopSession() sets d.client = nil, and Close() unblocks ReadMessage().
+func (d *Daemon) readLoop(client *DAPClient, ch chan godap.Message) {
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			close(ch)
+		}
+	}()
 	if client == nil {
 		return
 	}
@@ -271,6 +276,17 @@ func (d *Daemon) readLoop() {
 		msg, err := client.ReadMessage()
 		if err != nil {
 			return
+		}
+		if handedOff {
+			// The child session owns the conversation and receives program output;
+			// the parent only mirrors the child's terminated event from here on.
+			// Keep draining so the adapter never blocks on a full send buffer, and
+			// decline further startDebugging requests rather than leave them unanswered.
+			if req, ok := msg.(*godap.StartDebuggingRequest); ok {
+				log.Printf("startDebugging: declined, a child session is already active")
+				_ = client.send(startDebuggingResponse(req, false))
+			}
+			continue
 		}
 		switch m := msg.(type) {
 		case *godap.OutputEvent:
@@ -283,38 +299,46 @@ func (d *Daemon) readLoop() {
 				}
 			}
 		case *godap.StoppedEvent, *godap.TerminatedEvent, *godap.InitializedEvent, *godap.ExitedEvent:
-			d.expectCh <- msg
+			ch <- msg
 		case *godap.SetBreakpointsResponse:
 			d.checkBreakpointWarnings(m)
-			d.expectCh <- msg
+			ch <- msg
 		case godap.ResponseMessage:
-			d.expectCh <- msg
+			ch <- msg
 		case *godap.StartDebuggingRequest:
 			// Reverse request from js-debug to create a child debug session.
 			// js-debug uses multi-session: parent = session manager, child = actual debuggee.
 			// We respond with success, create a new connection for the child session,
 			// do full init (initialize → launch → breakpoints → configDone),
-			// and swap d.client so readLoop continues on the child.
-			resp := &godap.StartDebuggingResponse{}
-			resp.Type = "response"
-			resp.Command = m.Command
-			resp.RequestSeq = m.Seq
-			resp.Seq = 0
-			resp.Success = true
-			_ = d.client.send(resp)
+			// and hand d.client and ch to a read loop on the child connection.
+			_ = client.send(startDebuggingResponse(m, true))
 
 			if d.adapterAddr == "" {
 				log.Printf("startDebugging: no adapter address for child session")
 				continue
 			}
-			if err := d.setupChildSession(m.Arguments.Configuration); err != nil {
+			if err := d.setupChildSession(m.Arguments.Configuration, ch); err != nil {
 				log.Printf("startDebugging: %v", err)
 				continue
 			}
+			handedOff = true
 		default:
 			// Silently drop: ProcessEvent, ThreadEvent, ModuleEvent, ContinuedEvent, etc.
 		}
 	}
+}
+
+// startDebuggingResponse acknowledges (or declines) js-debug's startDebugging reverse request.
+func startDebuggingResponse(req *godap.StartDebuggingRequest, ok bool) *godap.StartDebuggingResponse {
+	resp := &godap.StartDebuggingResponse{}
+	resp.Type = "response"
+	resp.Command = req.Command
+	resp.RequestSeq = req.Seq
+	resp.Success = ok
+	if !ok {
+		resp.Message = "a child session is already active"
+	}
+	return resp
 }
 
 // waitForStopped waits for a StoppedEvent or TerminatedEvent, skipping responses and other events.
@@ -571,7 +595,7 @@ func (d *Daemon) handleDebug(rawArgs json.RawMessage) *Response {
 		}
 		d.setClient(client)
 		d.expectCh = make(chan godap.Message, 64)
-		go d.readLoop()
+		go d.readLoop(client, d.expectCh)
 
 		if err := d.initializeDAP(backend); err != nil {
 			return errResponse(err.Error())
@@ -1326,7 +1350,7 @@ func (d *Daemon) startAdapter(backend Backend) error {
 	}
 	d.setClient(client)
 	d.expectCh = make(chan godap.Message, 64)
-	go d.readLoop()
+	go d.readLoop(client, d.expectCh)
 	return nil
 }
 
@@ -1358,8 +1382,8 @@ func (d *Daemon) initializeDAP(backend Backend) error {
 
 // setupChildSession creates a child debug session for js-debug's multi-session architecture.
 // It connects a new DAP client, initializes it, sends launch + breakpoints + configDone,
-// and swaps d.client so readLoop continues reading from the child session.
-func (d *Daemon) setupChildSession(config map[string]any) error {
+// then swaps d.client to the child and starts a read loop on it that takes over ch.
+func (d *Daemon) setupChildSession(config map[string]any, ch chan godap.Message) error {
 	childClient, err := newDAPClient(d.adapterAddr)
 	if err != nil {
 		return fmt.Errorf("connecting child session: %w", err)
@@ -1418,8 +1442,10 @@ func (d *Daemon) setupChildSession(config map[string]any) error {
 		log.Printf("child configuration done: %v", err)
 	}
 
-	// Swap to child session — readLoop continues reading from child
+	// Without a loop of its own, the child's StoppedEvent/TerminatedEvent would
+	// never reach ch and every execution command would block forever.
 	d.setClient(childClient)
+	go d.readLoop(childClient, ch)
 	return nil
 }
 
